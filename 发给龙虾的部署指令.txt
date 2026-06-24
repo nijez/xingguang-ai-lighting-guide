@@ -11,15 +11,34 @@
 - 文件名：install-miloco-openclaw-cloud.sh
 - 目标位置：/tmp/install-miloco-openclaw-cloud.sh
 - 主下载地址：https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh
-- 备用下载地址 1：https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
-- 备用下载地址 2：https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh
+- 备用下载地址 1：https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh
+- 备用下载地址 2：https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
 
 执行要求：
 1. 下载固定脚本：
 
 ```bash
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh
-chmod +x /tmp/install-miloco-openclaw-cloud.sh
+TARGET=/tmp/install-miloco-openclaw-cloud.sh
+EXPECTED_VERSION=2026-06-24.1
+rm -f "$TARGET"
+for URL in \
+  https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh \
+  https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh \
+  https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
+do
+  echo "尝试下载脚本: $URL"
+  if curl -fsSL "$URL" -o "$TARGET"; then
+    if grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET"; then
+      echo "脚本下载成功，版本 $EXPECTED_VERSION"
+      break
+    fi
+    echo "脚本版本不匹配，继续尝试下一个源"
+  else
+    echo "下载失败，继续尝试下一个源"
+  fi
+done
+grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" || { echo "固定脚本下载失败或版本不正确"; exit 1; }
+chmod +x "$TARGET"
 ```
 
 2. 确认脚本是否存在、版本是否正确：
