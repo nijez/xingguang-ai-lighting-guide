@@ -1,4 +1,4 @@
-请你在这台服务器上部署 OpenClaw + Miloco 2.0。请严格按下面步骤执行，不要自行搜索网络、不要换安装路线、不要尝试源码安装、pip/pipx 安装、Docker 安装或手工解包安装。
+请你在这台服务器上执行「馨光 AI 设计灯光安装指导」部署流程，完成 OpenClaw 更新与 Miloco 2.0 部署。请严格按下面步骤执行，不要自行搜索网络、不要换安装路线、不要尝试源码安装、pip/pipx 安装、Docker 安装或手工解包安装。
 
 目标：
 1. 如果 OpenClaw 已预装，升级/配置 OpenClaw。
@@ -10,15 +10,15 @@
 唯一安装入口：
 - 文件名：install-miloco-openclaw-cloud.sh
 - 目标位置：/tmp/install-miloco-openclaw-cloud.sh
-- 主下载地址：https://nijez.github.io/openclaw-miloco2-install/install-miloco-openclaw-cloud.sh
-- 备用下载地址 1：https://cdn.jsdelivr.net/gh/nijez/openclaw-miloco2-install@main/install-miloco-openclaw-cloud.sh
-- 备用下载地址 2：https://raw.githubusercontent.com/nijez/openclaw-miloco2-install/main/install-miloco-openclaw-cloud.sh
+- 主下载地址：https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh
+- 备用下载地址 1：https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
+- 备用下载地址 2：https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh
 
 执行要求：
 1. 下载固定脚本：
 
 ```bash
-curl -fsSL https://nijez.github.io/openclaw-miloco2-install/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://cdn.jsdelivr.net/gh/nijez/openclaw-miloco2-install@main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://raw.githubusercontent.com/nijez/openclaw-miloco2-install/main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh -o /tmp/install-miloco-openclaw-cloud.sh
 chmod +x /tmp/install-miloco-openclaw-cloud.sh
 ```
 
@@ -80,7 +80,7 @@ ss -ltnp | grep -E ':(1810|18789)\b'
 7. 最终只按下面格式回复我：
 
 ```text
-OpenClaw + Miloco 2.0 部署结果
+馨光 AI 设计灯光部署结果
 
 脚本版本：
 OpenClaw 版本：
@@ -94,10 +94,12 @@ Miloco 插件状态：
 下一步需要人工处理：
 1. 配置 MiMo API Key：miloco-cli config set model.omni.api_key sk-你的Key
 2. 绑定米家账号：miloco-cli account bind
-3. 如需个人微信/企业微信/飞书绑定，重新运行脚本进入平台绑定菜单。
+3. 确认馨光淡彩光设备已出现在设备列表：miloco-cli device list
+4. 如需个人微信/企业微信/飞书绑定，重新运行脚本进入平台绑定菜单。
 ```
 
 重要限制：
 - 不要把 Miloco 面板直接暴露到公网。
-- 如果要访问面板，建议使用 SSH 隧道：ssh -L 1810:127.0.0.1:1810 用户名@服务器IP，然后本机浏览器打开 http://127.0.0.1:1810/
+- `127.0.0.1:1810` 是云服务器内部地址，不能在用户自己的电脑上直接打开。
+- 如果确实需要访问面板，只能先保持 SSH 隧道运行：ssh -L 1810:127.0.0.1:1810 用户名@服务器IP，然后本机浏览器再打开 http://127.0.0.1:1810/
 - 不要输出或保存 SSH 密码、token、MiMo API Key。

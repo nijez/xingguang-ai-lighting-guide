@@ -1,4 +1,4 @@
-请查看 OpenClaw + Miloco 2.0 安装进度。不要重新启动安装，不要修改脚本，不要切换安装方法。
+请查看 馨光 AI 设计灯光安装进度。不要重新启动安装，不要修改脚本，不要切换安装方法。
 
 请只执行下面这些命令：
 
@@ -34,7 +34,7 @@ openclaw plugins list 2>/dev/null | grep -i -C 2 miloco || true
 5. 如果已经完成，请按下面格式汇报：
 
 ```text
-OpenClaw + Miloco 2.0 部署结果
+馨光 AI 设计灯光部署结果
 
 脚本版本：
 OpenClaw 版本：
@@ -48,5 +48,6 @@ Miloco 插件状态：
 下一步需要人工处理：
 1. 配置 MiMo API Key：miloco-cli config set model.omni.api_key sk-你的Key
 2. 绑定米家账号：miloco-cli account bind
-3. 如需个人微信/企业微信/飞书绑定，重新运行脚本进入平台绑定菜单。
+3. 确认馨光淡彩光设备已出现在设备列表：miloco-cli device list
+4. 如需个人微信/企业微信/飞书绑定，重新运行脚本进入平台绑定菜单。
 ```

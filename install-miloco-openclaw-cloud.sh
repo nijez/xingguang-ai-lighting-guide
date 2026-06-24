@@ -748,7 +748,7 @@ print_header() {
   cat <<EOF
 
 ============================================================
- OpenClaw + Miloco 2.0 云服务器一键部署与维护
+ 馨光 AI 设计灯光安装指导
  脚本版本: $SCRIPT_VERSION
 ============================================================
 EOF
@@ -837,7 +837,7 @@ show_maintenance_menu() {
      只安装或更新 Miloco、插件和 allowlist
 
   3) 核心模块更新 / 修复
-     跳过系统大升级，只重跑 OpenClaw + Miloco 核心流程
+     跳过系统大升级，只重跑馨光 AI 设计灯光核心流程
 
   4) 重启 OpenClaw gateway
 
@@ -939,7 +939,7 @@ print_mode_summary() {
   local action_label="$1"
   cat <<EOF
 
-OpenClaw + Miloco 2.0 cloud installer
+Xingguang AI lighting installer
 Script version: $SCRIPT_VERSION
 Action: $action_label
 Mode:
@@ -963,11 +963,14 @@ Next manual steps:
      miloco-cli config set model.omni.api_key sk-xxx
   2. Bind Mi Home account when ready:
      miloco-cli account bind
-  3. Bind personal WeChat later:
+  3. Confirm Xingguang light devices are visible:
+     miloco-cli device list
+  4. Bind personal WeChat later:
      INSTALL_ACTION=weixin RUN_SYSTEM_UPGRADE=0 bash /tmp/install-miloco-openclaw-cloud.sh
-  4. Open the Miloco dashboard from the server or via SSH tunnel:
+  5. The Miloco dashboard listens on the cloud server loopback only.
+     If you need to open it from your computer, keep an SSH tunnel running:
      ssh -L 1810:127.0.0.1:1810 <user>@<server>
-     then visit http://127.0.0.1:1810/
+     then visit http://127.0.0.1:1810/ on your computer.
 EOF
 }
 
@@ -1069,7 +1072,7 @@ run_full_deploy() {
   local step_start
   TOTAL_STEPS=6
   print_mode_summary "full"
-  log "Starting OpenClaw + Miloco install (script $SCRIPT_VERSION)"
+  log "Starting Xingguang AI lighting install (script $SCRIPT_VERSION)"
   log "Install started at: $(date -Is)"
 
   step_start="$(date +%s)"
