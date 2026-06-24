@@ -31,21 +31,44 @@ grep '^SCRIPT_VERSION=' /tmp/install-miloco-openclaw-cloud.sh
 
 3. 如果脚本不存在，或者版本低于 2026-06-23.9，请停止并告诉我：固定脚本下载失败。不要自己去网上找替代脚本。
 
-4. 如果脚本存在且版本正确，执行：
+4. 如果脚本存在且版本正确，后台启动安装，把所有输出写到固定日志文件，并按进程观察进度。观察期间每 20 秒汇报一次当前状态，最多观察 60 次；如果安装还没结束，不要中断进程，只告诉我安装仍在后台运行：
 
 ```bash
-INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh
+LOG=/tmp/openclaw-miloco-install-current.log
+PIDFILE=/tmp/openclaw-miloco-install.pid
+rm -f "$LOG"
+nohup bash -lc 'INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh || INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh' > "$LOG" 2>&1 &
+echo $! > "$PIDFILE"
+PID="$(cat "$PIDFILE")"
+echo "安装进程已启动 PID=$PID 日志=$LOG"
+
+for i in $(seq 1 60); do
+  echo
+  echo "===== 安装进度检查 $i/60 ====="
+  if kill -0 "$PID" 2>/dev/null; then
+    echo "状态: RUNNING"
+  else
+    echo "状态: FINISHED"
+  fi
+
+  grep -E 'Step [0-9]+/6|✓ Step|ERROR|Failed|Traceback|Timing:|All done|Done' "$LOG" 2>/dev/null | tail -n 30 || true
+  echo "--- 最近日志 ---"
+  tail -n 35 "$LOG" 2>/dev/null || true
+
+  if ! kill -0 "$PID" 2>/dev/null; then
+    break
+  fi
+  sleep 20
+done
+
+if kill -0 "$PID" 2>/dev/null; then
+  echo "安装仍在后台运行，稍后可发送查看安装进度指令继续查看。"
+fi
 ```
 
-5. 安装期间只需要观察输出。不要中途杀进程，不要并行启动第二个安装，不要切换到其他安装方法。除非脚本明确退出失败，否则继续等待。
+5. 安装期间不要中途杀进程，不要并行启动第二个安装，不要切换到其他安装方法。如果对话窗口没有实时显示输出，安装也仍在后台运行；之后如果我要看进度，我会发送“查看安装进度”的指令，你只需要读取 `/tmp/openclaw-miloco-install-current.log`。
 
-6. 如果脚本失败，只允许做一次修复重试：
-
-```bash
-INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh
-```
-
-7. 完成后执行验证：
+6. 完成后执行验证：
 
 ```bash
 miloco-cli service status
@@ -54,7 +77,7 @@ openclaw plugins list | grep -i -C 2 miloco
 ss -ltnp | grep -E ':(1810|18789)\b'
 ```
 
-8. 最终只按下面格式回复我：
+7. 最终只按下面格式回复我：
 
 ```text
 OpenClaw + Miloco 2.0 部署结果

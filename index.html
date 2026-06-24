@@ -493,7 +493,11 @@
           <div class="notice">固定脚本地址已在腾讯云服务器实测通过。主地址是 GitHub Pages，备用地址是 jsDelivr 和 GitHub Raw。</div>
           <div class="cmd">
             <div class="cmd-title"><span>发给龙虾的一键部署指令</span><button class="copy-btn" data-copy-target="agentDownloadPromptCmd">复制指令</button></div>
-            <pre id="agentDownloadPromptCmd" data-template="请你在这台服务器上部署 OpenClaw + Miloco 2.0。不要自行搜索网络，不要改用源码、pip、pipx、Docker 或手工解包。请只执行下面这一份固定脚本：curl -fsSL {scriptUrl} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlCdn} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlRaw} -o /tmp/install-miloco-openclaw-cloud.sh。下载后执行 chmod +x /tmp/install-miloco-openclaw-cloud.sh。先检查 grep '^SCRIPT_VERSION=' /tmp/install-miloco-openclaw-cloud.sh，版本必须不低于 2026-06-23.9。然后执行：INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh。失败时只允许重试一次：INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh。完成后汇报 OpenClaw 版本、Miloco 服务状态、gateway 状态、插件状态、总耗时和日志文件。"></pre>
+            <pre id="agentDownloadPromptCmd" data-template="请你在这台服务器上部署 OpenClaw + Miloco 2.0。不要自行搜索网络，不要改用源码、pip、pipx、Docker 或手工解包。请只执行下面这一份固定脚本：curl -fsSL {scriptUrl} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlCdn} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlRaw} -o /tmp/install-miloco-openclaw-cloud.sh。下载后执行 chmod +x /tmp/install-miloco-openclaw-cloud.sh。先检查 grep '^SCRIPT_VERSION=' /tmp/install-miloco-openclaw-cloud.sh，版本必须不低于 2026-06-23.9。然后启动后台安装并按进程观察进度：LOG=/tmp/openclaw-miloco-install-current.log; PIDFILE=/tmp/openclaw-miloco-install.pid; rm -f $LOG; nohup bash -lc 'INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh || INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh' &gt; $LOG 2&gt;&amp;1 &amp; echo $! &gt; $PIDFILE; PID=$(cat $PIDFILE); echo 安装进程已启动 PID=$PID 日志=$LOG; for i in $(seq 1 60); do echo; echo '===== 安装进度检查' $i '/60 ====='; if kill -0 $PID 2&gt;/dev/null; then echo 状态: RUNNING; else echo 状态: FINISHED; fi; grep -E 'Step [0-9]+/6|✓ Step|ERROR|Failed|Traceback|Timing:|All done|Done' $LOG 2&gt;/dev/null | tail -n 30 || true; echo '--- 最近日志 ---'; tail -n 35 $LOG 2&gt;/dev/null || true; if ! kill -0 $PID 2&gt;/dev/null; then break; fi; sleep 20; done; if kill -0 $PID 2&gt;/dev/null; then echo '安装仍在后台运行，稍后可发送查看安装进度指令继续查看。'; fi。请根据输出用中文持续说明当前处于第几步、是否仍在运行、是否出现 ERROR；如果已完成，汇报 OpenClaw 版本、Miloco 服务状态、gateway 状态、插件状态、总耗时和日志文件。"></pre>
+          </div>
+          <div class="cmd">
+            <div class="cmd-title"><span>查看安装进度指令</span><button class="copy-btn" data-copy-target="progressPromptCmd">复制进度指令</button></div>
+            <pre id="progressPromptCmd" data-template="请查看 OpenClaw + Miloco 2.0 安装进度。只执行：PIDFILE=/tmp/openclaw-miloco-install.pid; LOG=/tmp/openclaw-miloco-install-current.log; if [ -f $PIDFILE ] &amp;&amp; kill -0 $(cat $PIDFILE) 2&gt;/dev/null; then echo '状态: RUNNING'; else echo '状态: FINISHED_OR_NOT_RUNNING'; fi; echo 日志文件:$LOG; tail -n 120 $LOG 2&gt;/dev/null || echo '暂未找到日志'; echo '--- Miloco service ---'; miloco-cli service status 2&gt;/dev/null || true; echo '--- OpenClaw gateway ---'; openclaw gateway status 2&gt;/dev/null || true; echo '--- Miloco plugin ---'; openclaw plugins list 2&gt;/dev/null | grep -i -C 2 miloco || true。请用中文告诉我：当前处于第几步、是否仍在运行、是否出现 ERROR、是否需要继续等待、如果已完成请按部署结果格式汇报。"></pre>
           </div>
           <div class="cmd">
             <div class="cmd-title"><span>附件上传备用指令</span><button class="copy-btn" data-copy-target="agentPromptCmd">复制备用指令</button></div>
@@ -507,6 +511,10 @@
             <a class="download-card" href="发给龙虾的部署指令.txt" download>
               <strong>下载龙虾指令</strong>
               <span>固定地址下载模式的完整提示词</span>
+            </a>
+            <a class="download-card" href="查看安装进度的指令.txt" download>
+              <strong>下载进度指令</strong>
+              <span>让 OpenClaw 汇报最近安装日志</span>
             </a>
             <a class="download-card" href="云服务器OpenClaw加Miloco2.0的一键部署包.zip" download>
               <strong>下载离线包</strong>
@@ -527,7 +535,7 @@
               <p>把下面这段话直接发给 OpenClaw。</p>
               <div class="cmd">
                 <div class="cmd-title"><span>发给 OpenClaw</span><button class="copy-btn" data-copy-target="agentDownloadPromptCmdQuick">复制指令</button></div>
-                <pre id="agentDownloadPromptCmdQuick" data-template="请你在这台服务器上部署 OpenClaw + Miloco 2.0。不要自行搜索网络，不要改用源码、pip、pipx、Docker 或手工解包。请只执行下面这一份固定脚本：curl -fsSL {scriptUrl} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlCdn} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlRaw} -o /tmp/install-miloco-openclaw-cloud.sh。下载后执行 chmod +x /tmp/install-miloco-openclaw-cloud.sh。先检查 grep '^SCRIPT_VERSION=' /tmp/install-miloco-openclaw-cloud.sh，版本必须不低于 2026-06-23.9。然后执行：INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh。失败时只允许重试一次：INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh。完成后汇报 OpenClaw 版本、Miloco 服务状态、gateway 状态、插件状态、总耗时和日志文件。"></pre>
+                <pre id="agentDownloadPromptCmdQuick" data-template="请你在这台服务器上部署 OpenClaw + Miloco 2.0。不要自行搜索网络，不要改用源码、pip、pipx、Docker 或手工解包。请只执行下面这一份固定脚本：curl -fsSL {scriptUrl} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlCdn} -o /tmp/install-miloco-openclaw-cloud.sh || curl -fsSL {scriptUrlRaw} -o /tmp/install-miloco-openclaw-cloud.sh。下载后执行 chmod +x /tmp/install-miloco-openclaw-cloud.sh。先检查 grep '^SCRIPT_VERSION=' /tmp/install-miloco-openclaw-cloud.sh，版本必须不低于 2026-06-23.9。然后启动后台安装并按进程观察进度：LOG=/tmp/openclaw-miloco-install-current.log; PIDFILE=/tmp/openclaw-miloco-install.pid; rm -f $LOG; nohup bash -lc 'INSTALL_ACTION=full INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh || INSTALL_ACTION=repair RUN_SYSTEM_UPGRADE=0 INSTALL_NONINTERACTIVE=1 bash /tmp/install-miloco-openclaw-cloud.sh' &gt; $LOG 2&gt;&amp;1 &amp; echo $! &gt; $PIDFILE; PID=$(cat $PIDFILE); echo 安装进程已启动 PID=$PID 日志=$LOG; for i in $(seq 1 60); do echo; echo '===== 安装进度检查' $i '/60 ====='; if kill -0 $PID 2&gt;/dev/null; then echo 状态: RUNNING; else echo 状态: FINISHED; fi; grep -E 'Step [0-9]+/6|✓ Step|ERROR|Failed|Traceback|Timing:|All done|Done' $LOG 2&gt;/dev/null | tail -n 30 || true; echo '--- 最近日志 ---'; tail -n 35 $LOG 2&gt;/dev/null || true; if ! kill -0 $PID 2&gt;/dev/null; then break; fi; sleep 20; done; if kill -0 $PID 2&gt;/dev/null; then echo '安装仍在后台运行，稍后可发送查看安装进度指令继续查看。'; fi。请根据输出用中文持续说明当前处于第几步、是否仍在运行、是否出现 ERROR；如果已完成，汇报 OpenClaw 版本、Miloco 服务状态、gateway 状态、插件状态、总耗时和日志文件。"></pre>
               </div>
             </div>
           </div>
@@ -535,8 +543,12 @@
           <div class="step-row">
             <div class="step-num">2</div>
             <div>
-              <h3>等待完成</h3>
-              <p>看到 <code>Done</code> 和 <code>Timing: Total install took ...</code> 就完成。OpenClaw 会汇报版本、服务状态、插件状态和日志文件。</p>
+              <h3>查看进度</h3>
+              <p>安装启动后，隔几分钟把下面这段话发给 OpenClaw。它会读取固定日志文件，告诉你正在跑哪一步。</p>
+              <div class="cmd">
+                <div class="cmd-title"><span>发给 OpenClaw</span><button class="copy-btn" data-copy-target="progressPromptCmdQuick">复制进度指令</button></div>
+                <pre id="progressPromptCmdQuick" data-template="请查看 OpenClaw + Miloco 2.0 安装进度。只执行：PIDFILE=/tmp/openclaw-miloco-install.pid; LOG=/tmp/openclaw-miloco-install-current.log; if [ -f $PIDFILE ] &amp;&amp; kill -0 $(cat $PIDFILE) 2&gt;/dev/null; then echo '状态: RUNNING'; else echo '状态: FINISHED_OR_NOT_RUNNING'; fi; echo 日志文件:$LOG; tail -n 120 $LOG 2&gt;/dev/null || echo '暂未找到日志'; echo '--- Miloco service ---'; miloco-cli service status 2&gt;/dev/null || true; echo '--- OpenClaw gateway ---'; openclaw gateway status 2&gt;/dev/null || true; echo '--- Miloco plugin ---'; openclaw plugins list 2&gt;/dev/null | grep -i -C 2 miloco || true。请用中文告诉我：当前处于第几步、是否仍在运行、是否出现 ERROR、是否需要继续等待、如果已完成请按部署结果格式汇报。"></pre>
+              </div>
             </div>
           </div>
 
