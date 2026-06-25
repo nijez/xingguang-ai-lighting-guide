@@ -481,10 +481,12 @@ install_openclaw() {
       run_openclaw_installer
       setup_runtime_paths
     else
-      log "Skipping OpenClaw package update (OPENCLAW_UPDATE=0)"
       if [[ -n "$current_version" ]] && ! version_ge "$current_version" "$OPENCLAW_MIN_VERSION"; then
-        log "WARNING: OpenClaw CLI version $current_version is below recommended $OPENCLAW_MIN_VERSION."
-        log "To upgrade during maintenance, run: OPENCLAW_UPDATE=1 RUN_SYSTEM_UPGRADE=0 INSTALL_ACTION=openclaw bash /tmp/install-miloco-openclaw-cloud.sh"
+        log "OpenClaw CLI version $current_version is below required $OPENCLAW_MIN_VERSION; updating despite OPENCLAW_UPDATE=0"
+        run_openclaw_installer
+        setup_runtime_paths
+      else
+        log "Skipping OpenClaw package update (OPENCLAW_UPDATE=0 and installed version satisfies $OPENCLAW_MIN_VERSION)"
       fi
       if wait_for_openclaw_gateway; then
         log "OpenClaw gateway already usable; skipping onboard reconfiguration"
@@ -1278,7 +1280,7 @@ run_full_deploy() {
   else
     step_start="$(date +%s)"
     step_start_msg 2 "OpenClaw check and gateway config"
-    print_step_note "默认面向腾讯云 OpenClaw 应用模板：只检查已预装 OpenClaw 并配置 gateway；仅 OPENCLAW_UPDATE=1 时主动升级。"
+    print_step_note "默认面向腾讯云 OpenClaw 应用模板：已安装且满足最低兼容版本时跳过升级；低于最低兼容版本或 OPENCLAW_UPDATE=1 时才升级。"
     install_openclaw
     step_done_msg 2 "OpenClaw check and gateway config" "$step_start"
     log_timing_since "OpenClaw" "$step_start"

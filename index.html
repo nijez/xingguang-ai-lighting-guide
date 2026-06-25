@@ -414,7 +414,7 @@
         <section id="agent">
           <h2>把一键部署指令发给龙虾</h2>
           <p>下面这份指令已经清理成单一流程：下载脚本、检查版本、轻量启动部署、观察进度和最终汇报都只保留一份。</p>
-          <div class="notice">默认参数：<code>RUN_SYSTEM_UPGRADE=0</code>、<code>OPENCLAW_UPDATE=0</code>、<code>INSTALL_EXTRA_PLUGINS=0</code>、<code>INSTALL_NONINTERACTIVE=1</code>。</div>
+          <div class="notice">默认参数：<code>RUN_SYSTEM_UPGRADE=0</code>、<code>OPENCLAW_UPDATE=0</code>、<code>INSTALL_EXTRA_PLUGINS=0</code>、<code>INSTALL_NONINTERACTIVE=1</code>。OpenClaw 已安装且满足最低兼容版本时跳过升级；低于最低兼容版本时会自动升级。</div>
           <div class="cmd">
             <div class="cmd-title"><span>发给龙虾的一键部署指令</span><button class="copy-btn" data-copy-textarea="agentPrompt">复制指令</button></div>
             <textarea id="agentPrompt" class="prompt-box" readonly>请你在这台服务器上执行「馨光 AI 设计灯光安装指导：第一阶段 OpenClaw + Miloco 2.0 底座部署」。默认环境是腾讯云轻量应用服务器的 OpenClaw 应用模板，OpenClaw 已预装。请不要自行搜索网络，不要改用源码安装、pip/pipx 安装、Docker 安装或手工解包安装。
@@ -428,8 +428,9 @@
 目标：
 1. 检查已预装 OpenClaw 和 gateway 状态。
 2. 轻量部署 Miloco 2.0 底座。
-3. 默认跳过微信绑定、米家账号绑定、MiMo API Key 配置。
-4. 最后汇报 OpenClaw gateway、Miloco 服务和插件状态。
+3. OpenClaw 已安装且满足最低兼容版本时跳过升级；低于最低兼容版本或显式要求时才升级。
+4. 默认跳过微信绑定、米家账号绑定、MiMo API Key 配置。
+5. 最后汇报 OpenClaw gateway、Miloco 服务和插件状态。
 
 当前阶段只部署底座，不安装馨光智能 Skill。馨光 Skill、设备白名单、淡彩光颜色规则和真机验收属于第二阶段。
 

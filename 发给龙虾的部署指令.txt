@@ -9,8 +9,9 @@
 目标：
 1. 检查已预装 OpenClaw 和 gateway 状态。
 2. 轻量部署 Miloco 2.0 底座。
-3. 默认跳过微信绑定、米家账号绑定、MiMo API Key 配置。
-4. 最后汇报 OpenClaw gateway、Miloco 服务和插件状态。
+3. OpenClaw 已安装且满足最低兼容版本时跳过升级；低于最低兼容版本或显式要求时才升级。
+4. 默认跳过微信绑定、米家账号绑定、MiMo API Key 配置。
+5. 最后汇报 OpenClaw gateway、Miloco 服务和插件状态。
 
 当前阶段只部署底座，不安装馨光智能 Skill。馨光 Skill、设备白名单、淡彩光颜色规则和真机验收属于第二阶段。
 
