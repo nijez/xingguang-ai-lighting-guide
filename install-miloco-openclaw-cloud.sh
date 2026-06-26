@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.8"
+SCRIPT_VERSION="2026-06-25.9"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -78,6 +78,12 @@ state_mark() {
   state_init
   grep -Fxq "$marker" "$STATE_FILE" || printf '%s\n' "$marker" >>"$STATE_FILE"
   printf 'STATE: %s\n' "$marker" >&2
+}
+
+state_mark_silent() {
+  local marker="$1"
+  state_init
+  grep -Fxq "$marker" "$STATE_FILE" || printf '%s\n' "$marker" >>"$STATE_FILE"
 }
 
 state_last_done() {
@@ -190,26 +196,26 @@ write_supervisor_launcher() {
 progress_message_for_marker() {
   case "$1" in
     STEP_1_DONE)
-      printf '1/4 正在准备安装环境\n'
+      printf '当前进度：\n1/4 正在准备安装环境\n'
       ;;
     STEP_2_DONE|PLUGIN_READY)
-      printf '2/4 正在安装灯光插件\n'
+      printf '当前进度：\n2/4 正在安装灯光插件\n'
       ;;
     STEP_3_DONE|STEP_4_DONE|STEP_5_DONE)
-      printf '3/4 正在准备米家连接\n'
+      printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
       cat <<'EOF'
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-刷新后如果是空白对话框，发送「查看安装进度」。
+刷新后如果是空白对话框，再发送「查看安装进度」。
 不要重复发送一键安装指令。
 EOF
       ;;
     GATEWAY_RESTART_DONE)
-      printf '3/4 正在准备米家连接\n'
+      printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '4/4 安装完成\n'
+      printf '当前进度：\n4/4 安装完成\n安装完成，请绑定米家账号。\n'
       ;;
     ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装暂时无法继续，请联系工作人员处理。\n'
@@ -252,6 +258,11 @@ background_pid_running() {
   [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" >/dev/null 2>&1
 }
 
+background_supervisor_running() {
+  background_pid_running && return 0
+  have systemctl && systemctl --user is-active --quiet "$SUPERVISOR_UNIT" >/dev/null 2>&1
+}
+
 observe_background_progress() {
   local max_seconds="${FRONT_PROGRESS_MAX_SECONDS:-480}"
   local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-15}"
@@ -260,11 +271,12 @@ observe_background_progress() {
   : >"$seen_file"
 
   printf '\n开始安装，请稍候。\n'
+  printf '\n当前进度：\n1/4 正在准备安装环境\n'
+  printf 'PHASE_1_PREP\n' >>"$seen_file"
 
   while (( elapsed <= max_seconds )); do
     emit_progress_updates "$seen_file"
     if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-      print_next_actions
       return 0
     fi
     if (( elapsed >= max_seconds )); then
@@ -276,19 +288,20 @@ observe_background_progress() {
 
   emit_progress_updates "$seen_file"
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-    print_next_actions
     return 0
   fi
 
-  if background_pid_running; then
+  if background_supervisor_running; then
     cat <<EOF
 
-稍后发送「查看安装进度」。
+安装仍在继续。
+如果刷新后没有看到进度，再发送「查看安装进度」。
 EOF
   else
     cat <<EOF
 
-安装暂时无法确认，请发送「查看安装进度」。
+安装暂时无法确认。
+如果刷新后没有看到进度，再发送「查看安装进度」。
 EOF
   fi
 }
@@ -303,7 +316,8 @@ launch_background_supervisor() {
   : >"$LOG_FILE"
   rm -f "$PID_FILE"
   state_init
-  state_mark BACKGROUND_SUPERVISOR_STARTED
+  : >"$STATE_FILE"
+  state_mark_silent BACKGROUND_SUPERVISOR_STARTED
   write_supervisor_launcher "$launcher"
 
   if have systemd-run && systemd-run --user --unit="$unit" --collect --property=Restart=no /bin/bash "$launcher" >/dev/null 2>&1; then
@@ -1749,21 +1763,21 @@ run_continue_deploy() {
 run_status_report() {
   state_init
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-    printf '安装完成，请绑定米家账号。\n'
+    printf '当前进度：\n4/4 安装完成\n安装完成，请绑定米家账号。\n'
   elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
     cat <<'EOF'
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-刷新后如果是空白对话框，发送「查看安装进度」。
+刷新后如果是空白对话框，再发送「查看安装进度」。
 不要重复发送一键安装指令。
 EOF
   elif state_has STEP_3_DONE || state_has STEP_4_DONE || state_has STEP_5_DONE || state_has GATEWAY_RESTART_DONE; then
-    printf '3/4 正在准备米家连接\n'
+    printf '当前进度：\n3/4 正在准备米家连接\n'
   elif state_has STEP_2_DONE || state_has PLUGIN_READY; then
-    printf '2/4 正在安装灯光插件\n'
+    printf '当前进度：\n2/4 正在安装灯光插件\n'
   elif state_has STEP_1_DONE; then
-    printf '1/4 正在准备安装环境\n'
+    printf '当前进度：\n1/4 正在准备安装环境\n'
   else
-    printf '1/4 正在准备安装环境\n'
+    printf '当前进度：\n1/4 正在准备安装环境\n'
   fi
 }
 

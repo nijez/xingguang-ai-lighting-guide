@@ -14,12 +14,12 @@
 TARGET=/tmp/install-xinguang-skill.sh
 LOG=/tmp/xinguang-skill-install-current.log
 STATE=/tmp/xinguang-skill-install.state
-PIDFILE=/tmp/xinguang-skill-install.pid
+RUN_MARKER=/tmp/xinguang-skill-install.pid
 EXPECTED_VERSION=2026-06-26.4
 
-if [ -f "$PIDFILE" ]; then
-  OLD_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
-  if [ -n "$OLD_PID" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
+if [ -f "$RUN_MARKER" ]; then
+  OLD_PROCESS="$(cat "$RUN_MARKER" 2>/dev/null || true)"
+  if [ -n "$OLD_PROCESS" ] && ps -p "$OLD_PROCESS" >/dev/null 2>&1; then
     echo "正在安装馨光 Skill。"
     echo "稍后请发送：查看馨光 Skill 安装进度"
     exit 0
@@ -44,7 +44,7 @@ nohup env \
   INSTALL_ACTION=continue \
   INSTALL_NONINTERACTIVE=1 \
   bash "$TARGET" >> "$LOG" 2>&1 &
-echo $! > "$PIDFILE"
+echo $! > "$RUN_MARKER"
 sleep 2
 
 echo "正在安装馨光 Skill。"

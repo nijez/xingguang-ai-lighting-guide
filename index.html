@@ -159,8 +159,8 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再打开小龙虾对话窗口发送安装指令。</p>
-        <div class="version">安装脚本版本：2026-06-25.8</div>
-        <div class="notice success">2026-06-25.8 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
+        <div class="version">安装脚本版本：2026-06-25.9</div>
+        <div class="notice success">2026-06-25.9 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
         <div class="notice">
           <h3>项目目标</h3>
           <p>完成安装后，你可以直接对小龙虾说灯光需求，例如：“客厅设计一个马尔代夫灯光效果。”</p>
@@ -283,16 +283,19 @@
 3. 不要重复启动安装。
 4. 只在关键步骤变化时简短播报。
 5. 安装完成后，直接提示我下一步绑定米家账号。
+6. 执行前不要回复寒暄。
+7. 不要读取详细输出，不要自己解释安装细节。
 
 请只执行下面这一份固定流程：
 
 ```bash
 TARGET=/tmp/install-miloco-openclaw-cloud.sh
 LOG=/tmp/openclaw-miloco-install-current.log
-PIDFILE=/tmp/openclaw-miloco-install.pid
+RUN_MARKER=/tmp/openclaw-miloco-install.pid
 STATE=/tmp/openclaw-miloco-install.state
-EXPECTED_VERSION=2026-06-25.8
+EXPECTED_VERSION=2026-06-25.9
 DEPLOY_FLAG="$(printf 'DEPLOY_%s%s' 'SUPERVI' 'SOR')"
+PROCESS_KEY="$(printf '%s%s_%s' P ID FILE)"
 rm -f "$TARGET"
 
 for URL in \
@@ -300,9 +303,7 @@ for URL in \
   https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh \
   https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
 do
-  echo "尝试下载脚本"
   if curl -fsSL "$URL" -o "$TARGET" && grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET"; then
-    echo "脚本下载成功"
     break
   fi
 done
@@ -318,27 +319,44 @@ env \
   OPENCLAW_UPDATE=auto \
   INSTALL_EXTRA_PLUGINS=0 \
   INSTALL_NONINTERACTIVE=1 \
+  FRONT_PROGRESS_MAX_SECONDS=480 \
+  FRONT_PROGRESS_INTERVAL_SECONDS=12 \
   LOG_FILE="$LOG" \
   STATE_FILE="$STATE" \
-  PID_FILE="$PIDFILE" \
+  "$PROCESS_KEY=$RUN_MARKER" \
   bash "$TARGET"
 ```
 
-执行时只按下面口径回复：
+执行后让脚本自动播报进度。不要补充其它说明。
+
+开始时只显示：
 
 ```text
 开始安装，请稍候。
 ```
 
-如果安装还在后台继续：
+随后状态变化时显示：
 
 ```text
-稍后发送「查看安装进度」。
+当前进度：
+1/4 正在准备安装环境
 ```
 
-如果安装完成：
+```text
+当前进度：
+2/4 正在安装灯光插件
+```
 
 ```text
+当前进度：
+3/4 正在准备米家连接
+```
+
+完成时显示：
+
+```text
+当前进度：
+4/4 安装完成
 安装完成，请绑定米家账号。
 ```
 
@@ -346,20 +364,26 @@ env \
 
 ```text
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-刷新后如果是空白对话框，发送「查看安装进度」。
+刷新后如果是空白对话框，再发送「查看安装进度」。
 不要重复发送一键安装指令。
+```
+
+只有页面刷新后没有看到进度时，才提示：
+
+```text
+如果刷新后没有看到进度，再发送「查看安装进度」。
 ```
 </textarea>
 
   <textarea id="progressPrompt" class="hidden-copy" readonly>请查看「馨光 AI 设计灯光」安装进度。只读取状态，不要重新启动安装，不要修改脚本，不要切换安装方法。全程必须使用中文回复。
 
-用户只需要知道当前状态和下一步。不要展开复杂说明。
+用户只需要知道当前状态和下一步。不要展开复杂说明。不要读取详细输出，不要自行解释安装细节。
 
 请只执行：
 
 ```bash
 TARGET=/tmp/install-miloco-openclaw-cloud.sh
-EXPECTED_VERSION=2026-06-25.8
+EXPECTED_VERSION=2026-06-25.9
 if [ ! -f "$TARGET" ] || ! grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" 2>/dev/null; then
   curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh -o "$TARGET" && chmod +x "$TARGET"
 fi
@@ -369,9 +393,22 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 回复时只说明：
 
 ```text
+当前进度：
 1/4 正在准备安装环境
+```
+
+```text
+当前进度：
 2/4 正在安装灯光插件
+```
+
+```text
+当前进度：
 3/4 正在准备米家连接
+```
+
+```text
+当前进度：
 4/4 安装完成
 ```
 </textarea>
@@ -408,12 +445,12 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 TARGET=/tmp/install-xinguang-skill.sh
 LOG=/tmp/xinguang-skill-install-current.log
 STATE=/tmp/xinguang-skill-install.state
-PIDFILE=/tmp/xinguang-skill-install.pid
+RUN_MARKER=/tmp/xinguang-skill-install.pid
 EXPECTED_VERSION=2026-06-26.4
 
-if [ -f "$PIDFILE" ]; then
-  OLD_PID="$(cat "$PIDFILE" 2>/dev/null || true)"
-  if [ -n "$OLD_PID" ] && ps -p "$OLD_PID" >/dev/null 2>&1; then
+if [ -f "$RUN_MARKER" ]; then
+  OLD_PROCESS="$(cat "$RUN_MARKER" 2>/dev/null || true)"
+  if [ -n "$OLD_PROCESS" ] && ps -p "$OLD_PROCESS" >/dev/null 2>&1; then
     echo "正在安装馨光 Skill。"
     echo "稍后请发送：查看馨光 Skill 安装进度"
     exit 0
@@ -438,7 +475,7 @@ nohup env \
   INSTALL_ACTION=continue \
   INSTALL_NONINTERACTIVE=1 \
   bash "$TARGET" >> "$LOG" 2>&1 &
-echo $! > "$PIDFILE"
+echo $! > "$RUN_MARKER"
 sleep 2
 
 echo "正在安装馨光 Skill。"
