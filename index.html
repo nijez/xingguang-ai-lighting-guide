@@ -159,8 +159,8 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再打开小龙虾对话窗口发送安装指令。</p>
-        <div class="version">安装脚本版本：2026-06-25.7</div>
-        <div class="notice success">2026-06-25.7 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
+        <div class="version">安装脚本版本：2026-06-25.8</div>
+        <div class="notice success">2026-06-25.8 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
         <div class="notice">
           <h3>项目目标</h3>
           <p>完成安装后，你可以直接对小龙虾说灯光需求，例如：“客厅设计一个马尔代夫灯光效果。”</p>
@@ -194,7 +194,7 @@
         <p>进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再打开小龙虾对话窗口发送安装指令。</p>
         <div class="notice">不要在小龙虾对话里反复粘贴 MiMo 订阅 Key。</div>
         <div class="grid">
-          <a class="card" href="https://platform.xiaomimimo.com/console/plan-manage" target="_blank" rel="noreferrer"><h3>小米 MiMo 订阅管理 / 获取 API Key</h3><p>进入 MiMo 控制台获取订阅 Key。</p></a>
+          <a class="card" href="https://platform.xiaomimimo.com/console/plan-manage" target="_blank" rel="noreferrer"><h3>小米 MiMo 订阅管理 / 获取订阅 Key</h3><p>进入 MiMo 控制台获取订阅 Key。</p></a>
         </div>
       </section>
 
@@ -239,11 +239,12 @@
           <div class="card">客厅设计一个马尔代夫灯光效果。</div>
           <div class="card">二楼客厅来一个森林晨光。</div>
           <div class="card">全屋灯带做一个朋友聚会氛围。</div>
-          <div class="card">保存当前灯光效果到快照 3。</div>
+          <div class="card">二楼客厅来个佛光普照。</div>
         </div>
         <div class="notice">
           <p>小龙虾发出灯光请求后，只需要现场观察灯光是否变化。</p>
           <p>如果已变化，回复：<code>已变化</code>。如果未变化，回复：<code>未变化</code>。</p>
+          <p>测试成功后，如果当前效果满意，也可以说：<code>保存当前灯光效果到快照 3</code>。</p>
         </div>
       </section>
 
@@ -290,7 +291,7 @@ TARGET=/tmp/install-miloco-openclaw-cloud.sh
 LOG=/tmp/openclaw-miloco-install-current.log
 PIDFILE=/tmp/openclaw-miloco-install.pid
 STATE=/tmp/openclaw-miloco-install.state
-EXPECTED_VERSION=2026-06-25.7
+EXPECTED_VERSION=2026-06-25.8
 DEPLOY_FLAG="$(printf 'DEPLOY_%s%s' 'SUPERVI' 'SOR')"
 rm -f "$TARGET"
 
@@ -326,14 +327,13 @@ env \
 执行时只按下面口径回复：
 
 ```text
-正在安装，请稍候。
+开始安装，请稍候。
 ```
 
 如果安装还在后台继续：
 
 ```text
-正在安装，请稍候。
-稍后请发送「查看安装进度」。
+稍后发送「查看安装进度」。
 ```
 
 如果安装完成：
@@ -346,7 +346,7 @@ env \
 
 ```text
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-刷新后如果是空白对话框，直接发送「查看安装进度」。
+刷新后如果是空白对话框，发送「查看安装进度」。
 不要重复发送一键安装指令。
 ```
 </textarea>
@@ -359,7 +359,7 @@ env \
 
 ```bash
 TARGET=/tmp/install-miloco-openclaw-cloud.sh
-EXPECTED_VERSION=2026-06-25.7
+EXPECTED_VERSION=2026-06-25.8
 if [ ! -f "$TARGET" ] || ! grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" 2>/dev/null; then
   curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh -o "$TARGET" && chmod +x "$TARGET"
 fi
@@ -369,7 +369,10 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 回复时只说明：
 
 ```text
-正在安装，请稍候。
+1/4 正在准备安装环境
+2/4 正在安装灯光插件
+3/4 正在准备米家连接
+4/4 安装完成
 ```
 </textarea>
 
@@ -488,6 +491,9 @@ INSTALL_ACTION=status bash "$TARGET"
 
 ```text
 馨光 Skill 已安装，可以开始测试灯光。
+
+你可以说：
+二楼客厅来个佛光普照
 ```
 
 如果仍在准备，回复：

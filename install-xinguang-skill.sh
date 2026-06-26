@@ -790,6 +790,7 @@ record_light_result() {
       fi
       state_mark LIGHT_TEST_SUCCESS
       printf '测试成功。\n'
+      printf '\n如果当前效果满意，也可以说：保存当前灯光效果到快照 3。\n'
       ;;
     未变化|没变化|not_changed|failed|no|false)
       state_mark PHYSICAL_NOT_CHANGED
@@ -833,6 +834,7 @@ print_status() {
 
   if status_file_has PHYSICAL_CHANGED; then
     printf '测试成功。\n'
+    printf '\n如果当前效果满意，也可以说：保存当前灯光效果到快照 3。\n'
     return 0
   fi
   if status_file_has PHYSICAL_NOT_CHANGED; then
@@ -841,6 +843,7 @@ print_status() {
   fi
   if status_file_has LIGHT_TEST_SUCCESS; then
     printf '测试成功。\n'
+    printf '\n如果当前效果满意，也可以说：保存当前灯光效果到快照 3。\n'
     return 0
   fi
   if status_file_has LIGHT_TEST_FAILED; then
@@ -862,10 +865,8 @@ print_status() {
     cat <<'EOF'
 馨光 Skill 已安装，可以开始测试灯光。
 
-你还可以继续说：
-- 二楼客厅换成马尔代夫灯光效果。
-- 二楼客厅来一个森林晨光。
-- 保存当前灯光效果到快照 3。
+你可以说：
+二楼客厅来个佛光普照
 EOF
   else
     printf '正在安装馨光 Skill。\n'
@@ -906,10 +907,8 @@ main() {
 灯光服务已就绪。
 可以开始测试灯光。
 
-你还可以继续说：
-- 二楼客厅换成马尔代夫灯光效果。
-- 二楼客厅来一个森林晨光。
-- 保存当前灯光效果到快照 3。
+你可以说：
+二楼客厅来个佛光普照
 EOF
 }
 

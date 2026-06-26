@@ -36,6 +36,9 @@ INSTALL_ACTION=status bash "$TARGET"
 
 ```text
 馨光 Skill 已安装，可以开始测试灯光。
+
+你可以说：
+二楼客厅来个佛光普照
 ```
 
 如果仍在准备，回复：

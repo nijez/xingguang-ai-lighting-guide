@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.7"
+SCRIPT_VERSION="2026-06-25.8"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -189,23 +189,27 @@ write_supervisor_launcher() {
 
 progress_message_for_marker() {
   case "$1" in
-    STEP_1_DONE|STEP_2_DONE)
-      printf '正在准备安装环境。\n'
+    STEP_1_DONE)
+      printf '1/4 正在准备安装环境\n'
       ;;
-    PLUGIN_READY)
-      printf '正在安装灯光插件。\n'
+    STEP_2_DONE|PLUGIN_READY)
+      printf '2/4 正在安装灯光插件\n'
       ;;
-    STEP_3_DONE)
-      printf '正在安装灯光插件。\n'
+    STEP_3_DONE|STEP_4_DONE|STEP_5_DONE)
+      printf '3/4 正在准备米家连接\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
-      printf '小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。\n'
+      cat <<'EOF'
+小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
+刷新后如果是空白对话框，发送「查看安装进度」。
+不要重复发送一键安装指令。
+EOF
       ;;
     GATEWAY_RESTART_DONE)
-      printf '正在安装，请稍候。\n'
+      printf '3/4 正在准备米家连接\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '安装完成。\n下一步：绑定米家账号。\n'
+      printf '4/4 安装完成\n'
       ;;
     ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装暂时无法继续，请联系工作人员处理。\n'
@@ -226,6 +230,9 @@ emit_progress_updates() {
     [[ -n "$message" ]] || continue
     key="$marker"
     case "$marker" in
+      STEP_1_DONE) key="PHASE_1_PREP" ;;
+      STEP_2_DONE|PLUGIN_READY) key="PHASE_2_PLUGIN" ;;
+      STEP_3_DONE|STEP_4_DONE|STEP_5_DONE|GATEWAY_RESTART_DONE) key="PHASE_3_MIJIA" ;;
       GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED) key="RECONNECT_EXPECTED" ;;
       STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) key="INSTALL_COMPLETE" ;;
       ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
@@ -252,7 +259,7 @@ observe_background_progress() {
   local seen_file="$WORK_DIR/frontend-progress-seen.txt"
   : >"$seen_file"
 
-  printf '\n正在安装，请稍候。\n'
+  printf '\n开始安装，请稍候。\n'
 
   while (( elapsed <= max_seconds )); do
     emit_progress_updates "$seen_file"
@@ -276,8 +283,7 @@ observe_background_progress() {
   if background_pid_running; then
     cat <<EOF
 
-正在安装，请稍候。
-稍后可发送「查看安装进度」。
+稍后发送「查看安装进度」。
 EOF
   else
     cat <<EOF
@@ -316,7 +322,6 @@ launch_background_supervisor() {
     sleep 0.2
   done
 
-  printf '正在安装，请稍候。\n'
   observe_background_progress
 }
 
@@ -1419,7 +1424,7 @@ with_system_upgrade_disabled() {
 }
 
 print_mode_summary() {
-  printf '\n正在安装，请稍候。\n'
+  printf '\n开始安装，请稍候。\n'
 }
 
 account_bound_known() {
@@ -1454,10 +1459,8 @@ print_next_actions() {
 
 馨光 Skill 已安装，可以开始测试灯光。
 
-你还可以继续说：
-- 二楼客厅换成马尔代夫灯光效果。
-- 二楼客厅来一个森林晨光。
-- 保存当前灯光效果到快照 3。
+你可以说：
+二楼客厅来个佛光普照
 EOF
   elif xinguang_home_selected_known; then
     cat <<'EOF'
@@ -1747,8 +1750,20 @@ run_status_report() {
   state_init
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
     printf '安装完成，请绑定米家账号。\n'
+  elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
+    cat <<'EOF'
+小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
+刷新后如果是空白对话框，发送「查看安装进度」。
+不要重复发送一键安装指令。
+EOF
+  elif state_has STEP_3_DONE || state_has STEP_4_DONE || state_has STEP_5_DONE || state_has GATEWAY_RESTART_DONE; then
+    printf '3/4 正在准备米家连接\n'
+  elif state_has STEP_2_DONE || state_has PLUGIN_READY; then
+    printf '2/4 正在安装灯光插件\n'
+  elif state_has STEP_1_DONE; then
+    printf '1/4 正在准备安装环境\n'
   else
-    printf '正在安装，请稍候。\n'
+    printf '1/4 正在准备安装环境\n'
   fi
 }
 

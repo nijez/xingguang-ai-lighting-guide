@@ -16,7 +16,7 @@ TARGET=/tmp/install-miloco-openclaw-cloud.sh
 LOG=/tmp/openclaw-miloco-install-current.log
 PIDFILE=/tmp/openclaw-miloco-install.pid
 STATE=/tmp/openclaw-miloco-install.state
-EXPECTED_VERSION=2026-06-25.7
+EXPECTED_VERSION=2026-06-25.8
 DEPLOY_FLAG="$(printf 'DEPLOY_%s%s' 'SUPERVI' 'SOR')"
 rm -f "$TARGET"
 
@@ -52,14 +52,13 @@ env \
 执行时只按下面口径回复：
 
 ```text
-正在安装，请稍候。
+开始安装，请稍候。
 ```
 
 如果安装还在后台继续：
 
 ```text
-正在安装，请稍候。
-稍后请发送「查看安装进度」。
+稍后发送「查看安装进度」。
 ```
 
 如果安装完成：
@@ -72,5 +71,6 @@ env \
 
 ```text
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-刷新后如果是空白对话框，直接发送「查看安装进度」。
+刷新后如果是空白对话框，发送「查看安装进度」。
+不要重复发送一键安装指令。
 ```

@@ -6,7 +6,7 @@
 
 ```bash
 TARGET=/tmp/install-miloco-openclaw-cloud.sh
-EXPECTED_VERSION=2026-06-25.7
+EXPECTED_VERSION=2026-06-25.8
 
 if [ ! -f "$TARGET" ] || ! grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" 2>/dev/null; then
   echo "暂时无法读取安装进度，请联系工作人员处理。"
@@ -19,7 +19,10 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 然后只按下面格式回复：
 
 ```text
-正在安装，请稍候。
+1/4 正在准备安装环境
+2/4 正在安装灯光插件
+3/4 正在准备米家连接
+4/4 安装完成
 ```
 
 如果安装完成，必须回复：
@@ -31,8 +34,11 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 如果还没完成，回复：
 
 ```text
-正在安装，请稍候。
-稍后请发送「查看安装进度」。
+1/4 正在准备安装环境
+或
+2/4 正在安装灯光插件
+或
+3/4 正在准备米家连接
 ```
 
 如果多次刷新后仍无法查看进度，请联系工作人员处理。
