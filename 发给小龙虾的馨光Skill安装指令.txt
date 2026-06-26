@@ -14,7 +14,7 @@
 TARGET=/tmp/install-xinguang-skill.sh
 LOG=/tmp/xinguang-skill-install-current.log
 STATE=/tmp/xinguang-skill-install.state
-RUN_MARKER=/tmp/xinguang-skill-install.pid
+RUN_MARKER=/tmp/xinguang-skill-install.marker
 EXPECTED_VERSION=2026-06-26.4
 
 if [ -f "$RUN_MARKER" ]; then

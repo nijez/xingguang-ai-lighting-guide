@@ -5,8 +5,8 @@
 请只执行下面的只读检查：
 
 ```bash
-TARGET=/tmp/install-miloco-openclaw-cloud.sh
-EXPECTED_VERSION=2026-06-25.9
+TARGET=/tmp/xinguang-light-install.sh
+EXPECTED_VERSION=2026-06-25.10
 
 if [ ! -f "$TARGET" ] || ! grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" 2>/dev/null; then
   echo "暂时无法读取安装进度，请联系工作人员处理。"
@@ -43,7 +43,9 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 ```text
 当前进度：
 4/4 安装完成
-安装完成，请绑定米家账号。
+
+下一步：
+请发送「绑定米家账号」。
 ```
 
 如果还没完成，回复：
@@ -57,6 +59,12 @@ INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$TARGET"
 或
 当前进度：
 3/4 正在准备米家连接
+```
+
+然后补充：
+
+```text
+请继续等待，不要重复发送一键安装指令。
 ```
 
 如果多次刷新后仍无法查看进度，请联系工作人员处理。

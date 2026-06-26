@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.9"
+SCRIPT_VERSION="2026-06-25.10"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -124,6 +124,9 @@ EOF
 step_start_msg() {
   local number="$1"
   local title="$2"
+  if [[ "$TOTAL_STEPS" == 6 ]]; then
+    state_mark_silent "STEP_${number}_STARTED"
+  fi
   printf '\n[%s] Step %s/%s: %s\n' "$(date +%H:%M:%S)" "$number" "$TOTAL_STEPS" "$title" >&2
 }
 
@@ -195,13 +198,13 @@ write_supervisor_launcher() {
 
 progress_message_for_marker() {
   case "$1" in
-    STEP_1_DONE)
+    STEP_1_STARTED|STEP_1_DONE|STEP_2_STARTED)
       printf '当前进度：\n1/4 正在准备安装环境\n'
       ;;
-    STEP_2_DONE|PLUGIN_READY)
+    STEP_2_DONE|STEP_3_STARTED|PLUGIN_READY)
       printf '当前进度：\n2/4 正在安装灯光插件\n'
       ;;
-    STEP_3_DONE|STEP_4_DONE|STEP_5_DONE)
+    STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED|STEP_5_DONE|STEP_6_STARTED)
       printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
@@ -215,7 +218,7 @@ EOF
       printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '当前进度：\n4/4 安装完成\n安装完成，请绑定米家账号。\n'
+      printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
       ;;
     ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装暂时无法继续，请联系工作人员处理。\n'
@@ -236,9 +239,9 @@ emit_progress_updates() {
     [[ -n "$message" ]] || continue
     key="$marker"
     case "$marker" in
-      STEP_1_DONE) key="PHASE_1_PREP" ;;
-      STEP_2_DONE|PLUGIN_READY) key="PHASE_2_PLUGIN" ;;
-      STEP_3_DONE|STEP_4_DONE|STEP_5_DONE|GATEWAY_RESTART_DONE) key="PHASE_3_MIJIA" ;;
+      STEP_1_STARTED|STEP_1_DONE|STEP_2_STARTED) key="PHASE_1_PREP" ;;
+      STEP_2_DONE|STEP_3_STARTED|PLUGIN_READY) key="PHASE_2_PLUGIN" ;;
+      STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED|STEP_5_DONE|STEP_6_STARTED|GATEWAY_RESTART_DONE) key="PHASE_3_MIJIA" ;;
       GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED) key="RECONNECT_EXPECTED" ;;
       STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) key="INSTALL_COMPLETE" ;;
       ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
@@ -265,7 +268,7 @@ background_supervisor_running() {
 
 observe_background_progress() {
   local max_seconds="${FRONT_PROGRESS_MAX_SECONDS:-480}"
-  local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-15}"
+  local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-5}"
   local elapsed=0
   local seen_file="$WORK_DIR/frontend-progress-seen.txt"
   : >"$seen_file"
@@ -277,6 +280,9 @@ observe_background_progress() {
   while (( elapsed <= max_seconds )); do
     emit_progress_updates "$seen_file"
     if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+      return 0
+    fi
+    if state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
       return 0
     fi
     if (( elapsed >= max_seconds )); then
@@ -294,14 +300,16 @@ observe_background_progress() {
   if background_supervisor_running; then
     cat <<EOF
 
-安装仍在继续。
-如果刷新后没有看到进度，再发送「查看安装进度」。
+安装还在继续，请稍候。
+如果超过 2 分钟没有新进度，再发送「查看安装进度」。
+不要重复发送一键安装指令。
 EOF
   else
     cat <<EOF
 
 安装暂时无法确认。
-如果刷新后没有看到进度，再发送「查看安装进度」。
+如果超过 2 分钟没有新进度，再发送「查看安装进度」。
+不要重复发送一键安装指令。
 EOF
   fi
 }
@@ -1079,6 +1087,7 @@ restart_openclaw_gateway_best_effort() {
   state_mark GATEWAY_RESTART_SCHEDULED
   if [[ "$RUN_CONTEXT" == agentchat_supervisor ]]; then
     state_mark AGENTCHAT_RECONNECT_EXPECTED
+    sleep "${RESTART_NOTICE_DELAY_SECONDS:-4}"
   fi
   log "Restarting OpenClaw gateway"
   if timeout 90s openclaw gateway restart; then
@@ -1490,7 +1499,8 @@ EOF
   else
     cat <<'EOF'
 
-安装完成，请绑定米家账号。
+下一步：
+请发送「绑定米家账号」。
 EOF
   fi
 }
@@ -1571,7 +1581,8 @@ prompt_mihome_binding() {
   if [[ "$INSTALL_NONINTERACTIVE" == 1 || ! -t 0 ]]; then
     cat <<'EOF'
 
-安装完成，请绑定米家账号。
+下一步：
+请发送「绑定米家账号」。
 EOF
     return 0
   fi
@@ -1580,7 +1591,8 @@ EOF
     miloco-cli account bind || true
   else
     cat <<'EOF'
-安装完成，请绑定米家账号。
+下一步：
+请发送「绑定米家账号」。
 EOF
   fi
 }
@@ -1763,21 +1775,25 @@ run_continue_deploy() {
 run_status_report() {
   state_init
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-    printf '当前进度：\n4/4 安装完成\n安装完成，请绑定米家账号。\n'
+    printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
   elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
     cat <<'EOF'
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
 刷新后如果是空白对话框，再发送「查看安装进度」。
 不要重复发送一键安装指令。
 EOF
-  elif state_has STEP_3_DONE || state_has STEP_4_DONE || state_has STEP_5_DONE || state_has GATEWAY_RESTART_DONE; then
+  elif state_has STEP_3_DONE || state_has STEP_4_STARTED || state_has STEP_4_DONE || state_has STEP_5_STARTED || state_has STEP_5_DONE || state_has STEP_6_STARTED || state_has GATEWAY_RESTART_DONE; then
     printf '当前进度：\n3/4 正在准备米家连接\n'
-  elif state_has STEP_2_DONE || state_has PLUGIN_READY; then
+    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+  elif state_has STEP_2_DONE || state_has STEP_3_STARTED || state_has PLUGIN_READY; then
     printf '当前进度：\n2/4 正在安装灯光插件\n'
-  elif state_has STEP_1_DONE; then
+    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+  elif state_has STEP_1_STARTED || state_has STEP_1_DONE || state_has STEP_2_STARTED; then
     printf '当前进度：\n1/4 正在准备安装环境\n'
+    printf '\n请继续等待，不要重复发送一键安装指令。\n'
   else
     printf '当前进度：\n1/4 正在准备安装环境\n'
+    printf '\n请继续等待，不要重复发送一键安装指令。\n'
   fi
 }
 

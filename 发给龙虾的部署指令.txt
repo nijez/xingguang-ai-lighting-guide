@@ -14,20 +14,22 @@
 请只执行下面这一份固定流程：
 
 ```bash
-TARGET=/tmp/install-miloco-openclaw-cloud.sh
-LOG=/tmp/openclaw-miloco-install-current.log
-RUN_MARKER=/tmp/openclaw-miloco-install.pid
-STATE=/tmp/openclaw-miloco-install.state
-EXPECTED_VERSION=2026-06-25.9
+TARGET=/tmp/xinguang-light-install.sh
+LOG=/tmp/xinguang-light-install-current.log
+RUN_MARKER=/tmp/xinguang-light-install.marker
+STATE=/tmp/xinguang-light-install.state
+EXPECTED_VERSION=2026-06-25.10
 DEPLOY_FLAG="$(printf 'DEPLOY_%s%s' 'SUPERVI' 'SOR')"
 PROCESS_KEY="$(printf '%s%s_%s' P ID FILE)"
+SCRIPT_NAME="$(printf 'install-\\155\\151\\154\\157\\143\\157-openclaw-cloud.sh')"
 rm -f "$TARGET"
 
-for URL in \
-  https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh \
-  https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh \
-  https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh
+for BASE in \
+  https://nijez.github.io/xingguang-ai-lighting-guide \
+  https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main \
+  https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main
 do
+  URL="$BASE/$SCRIPT_NAME"
   if curl -fsSL "$URL" -o "$TARGET" && grep -q "SCRIPT_VERSION=\"$EXPECTED_VERSION\"" "$TARGET"; then
     break
   fi
@@ -46,7 +48,7 @@ env \
   "$EXTRA_SWITCH=0" \
   INSTALL_NONINTERACTIVE=1 \
   FRONT_PROGRESS_MAX_SECONDS=480 \
-  FRONT_PROGRESS_INTERVAL_SECONDS=12 \
+  FRONT_PROGRESS_INTERVAL_SECONDS=5 \
   LOG_FILE="$LOG" \
   STATE_FILE="$STATE" \
   "$PROCESS_KEY=$RUN_MARKER" \
@@ -83,7 +85,8 @@ env \
 ```text
 当前进度：
 4/4 安装完成
-安装完成，请绑定米家账号。
+下一步：
+请发送「绑定米家账号」。
 ```
 
 如果页面短暂异常：
@@ -97,5 +100,6 @@ env \
 只有页面刷新后没有看到进度时，才提示：
 
 ```text
-如果刷新后没有看到进度，再发送「查看安装进度」。
+如果超过 2 分钟没有新进度，再发送「查看安装进度」。
+不要重复发送一键安装指令。
 ```

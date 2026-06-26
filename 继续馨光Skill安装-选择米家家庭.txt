@@ -21,7 +21,7 @@
 TARGET=/tmp/install-xinguang-skill.sh
 EXPECTED_VERSION=2026-06-26.4
 LOG=/tmp/xinguang-skill-install-current.log
-PIDFILE=/tmp/xinguang-skill-install.pid
+RUN_MARKER=/tmp/xinguang-skill-install.marker
 
 grep -q "XINGUANG_SKILL_INSTALLER_VERSION=\"$EXPECTED_VERSION\"" "$TARGET" || { echo "馨光 Skill 安装脚本不存在或版本不正确，请联系工作人员处理。"; exit 1; }
 chmod +x "$TARGET"
@@ -32,7 +32,7 @@ nohup env \
   INSTALL_NONINTERACTIVE=1 \
   bash "$TARGET" >> "$LOG" 2>&1 &
 
-echo $! > "$PIDFILE"
+echo $! > "$RUN_MARKER"
 
 echo "正在安装馨光 Skill。"
 echo "稍后请发送「查看馨光 Skill 安装进度」。"
