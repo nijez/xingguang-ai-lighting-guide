@@ -176,8 +176,8 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">准备好腾讯云轻量服务器的小龙虾（OpenClaw）应用模板和 MiMo API Key 后，把固定安装指令发给小龙虾对话页即可开始安装。</p>
-        <div class="version">脚本版本：2026-06-25.3</div>
-        <div class="notice success">2026-06-25.3 已完成真实腾讯云小龙虾应用模板服务器验证，可按本教程安装。</div>
+        <div class="version">脚本版本：2026-06-25.4</div>
+        <div class="notice success">2026-06-25.4 为今晚内测发布版本，包含阶段性进度播报和安装完成后的下一步引导。</div>
         <div class="notice">
           <h3>项目目标</h3>
           <p>完成安装后，用户可以在小龙虾里输入灯光需求，例如：“吊顶灯带，设计个马尔代夫灯光效果。”</p>
@@ -191,7 +191,7 @@
           <div class="step"><div class="num">1</div><div><h3>准备小龙虾服务器</h3><p>购买腾讯云轻量应用服务器，并选择小龙虾应用模板。</p></div></div>
           <div class="step"><div class="num">2</div><div><h3>配置小龙虾</h3><p>开通小米 MiMo 大模型账号，获取并填写 MiMo API Key，绑定微信小龙虾。</p></div></div>
           <div class="step"><div class="num">3</div><div><h3>安装馨光 AI 设计灯光</h3><p>复制页面里的固定安装指令，发给小龙虾对话页。</p></div></div>
-          <div class="step"><div class="num">4</div><div><h3>配置并测试灯光效果</h3><p>配置灯光能力、绑定米家账号、选择要使用的米家家庭，安装馨光 Skill 后直接用自然语言控制灯光。</p></div></div>
+          <div class="step"><div class="num">4</div><div><h3>配置并测试灯光效果</h3><p>配置灯光能力、绑定米家账号，安装馨光 Skill；如果有多个米家家庭，选择馨光设备所在家庭，之后直接用自然语言控制灯光。</p></div></div>
         </div>
       </section>
 
@@ -227,13 +227,15 @@
 重要回复语言要求：
 - 全程必须使用中文回复，包括中间进度、等待说明、异常解释和最终结果。
 - 不要用英文写过程说明。
-- 当前回复只负责启动后台安装任务，不要长时间轮询。
+- 当前回复负责启动后台安装任务，并做轻量进度播报。
+- 前台最多观察约 8 分钟，只在关键步骤变化时回复，不要持续刷完整日志。
 
 目标：
 1. 下载固定脚本并校验版本。
 2. 启动后台安装任务。
-3. 默认跳过米家账号绑定和 MiMo API Key 配置。
-4. 如果安装过程中页面短暂异常，提示用户等待 1～3 分钟后刷新页面；如果刷新后是空白对话框，直接发送「查看安装进度」。
+3. 前台轻量观察安装进度，只在状态变化时播报。
+4. 默认跳过米家账号绑定和 MiMo API Key 配置。
+5. 如果安装过程中页面短暂异常，提示用户等待 1～3 分钟后刷新页面；如果刷新后是空白对话框，直接发送「查看安装进度」。
 
 当前阶段安装馨光 AI 设计灯光所需能力。馨光 Skill 安装与灯光测试将在后续步骤补充。
 
@@ -244,7 +246,7 @@ TARGET=/tmp/install-miloco-openclaw-cloud.sh
 LOG=/tmp/openclaw-miloco-install-current.log
 PIDFILE=/tmp/openclaw-miloco-install.pid
 STATE=/tmp/openclaw-miloco-install.state
-EXPECTED_VERSION=2026-06-25.3
+EXPECTED_VERSION=2026-06-25.4
 DEPLOY_FLAG="$(printf 'DEPLOY_%s%s' 'SUPERVI' 'SOR')"
 rm -f "$TARGET"
 
@@ -278,37 +280,65 @@ env \
   bash "$TARGET"
 ```
 
-执行后请只用中文输出下面这个模板，不要继续轮询：
+执行后请只用中文播报关键进度。不要刷完整日志，不要长时间占用对话。
+
+关键进度参考：
 
 ```text
-馨光 AI 设计灯光后台安装已启动
+✅ Step 1/6：依赖检查完成
+✅ Step 2/6：小龙虾环境检查完成
+✅ Step 3/6：插件准备完成
+✅ Step 4/6：馨光 AI 设计灯光环境安装完成
+⚠️ Step 5/6：小龙虾后台服务正在重启，页面可能短暂异常。
+✅ Step 6/6：安装完成
+```
+
+如果安装还没完成，请输出：
+
+```text
+馨光 AI 设计灯光仍在后台安装
 脚本版本：
 任务状态：
 日志文件：
 状态文件：
 
 说明：
-安装任务已在服务器后台运行。
+安装任务仍在服务器后台运行。
 如果页面稍后短暂异常，通常是小龙虾后台服务正在重启。
 请等待 1～3 分钟后刷新页面。
 如果刷新后出现空白对话框，直接发送「查看安装进度」。
 不要重复发送一键部署指令。
 ```
 
+如果安装完成，请输出：
+
+```text
+馨光 AI 设计灯光环境安装完成 ✅
+
+下一步：绑定米家账号
+
+请继续回复：
+绑定米家账号
+
+绑定完成后，如果你的账号下有多个家庭，请选择馨光设备所在的家庭。
+家庭选择完成后，再继续安装馨光 Skill。
+```
+
 重要限制：
 - 不要输出或保存用户密码、授权信息、MiMo API Key。
-- 默认跳过米家账号绑定和 MiMo API Key 配置。</textarea>
+- 默认跳过米家账号绑定和 MiMo API Key 配置。
+</textarea>
         </div>
       </section>
 
       <section id="test">
         <h2>4. 配置并测试灯光效果</h2>
         <p>安装完成后，还需要把 MiMo API Key 配置给馨光 AI 设计灯光能力。如果前面已经获取过 MiMo API Key，这里可以继续使用同一个 Key。</p>
-        <p>完成前面步骤后，可以继续安装馨光 Skill。安装完成后，请先选择要使用的米家家庭。之后你可以直接告诉小龙虾想要的灯光效果，例如“客厅设计一个马尔代夫灯光效果”。小龙虾会读取该家庭下的馨光设备，并通过馨光 Skill 执行灯光效果。</p>
+        <p>完成前面步骤后，可以继续安装馨光 Skill。安装完成后，如果你的米家账号下有多个家庭，请选择馨光设备所在的家庭。之后你可以直接告诉小龙虾想要的灯光效果，例如“客厅设计一个马尔代夫灯光效果”，小龙虾会通过馨光 Skill 控制馨光设备。</p>
         <div class="grid">
           <div class="card"><h3>1. 配置灯光能力 MiMo API Key</h3><p>用于馨光 AI 设计灯光能力。</p></div>
           <div class="card"><h3>2. 绑定米家账号</h3><p>用于读取并控制你的馨光设备。</p></div>
-          <div class="card"><h3>3. 选择米家家庭</h3><p>如果账号下有多个家庭，请选择馨光设备所在的家庭。</p></div>
+          <div class="card"><h3>3. 选择米家家庭</h3><p>如果你的米家账号下有多个家庭，请选择馨光设备所在的家庭。</p></div>
           <div class="card"><h3>4. 安装馨光 Skill</h3><p>安装完成后，直接用自然语言告诉小龙虾想要的灯光效果。</p></div>
         </div>
         <div class="notice">
@@ -348,6 +378,7 @@ env \
 - 全程必须使用中文回复，包括中间进度、等待说明、异常解释和最终结果。
 - 每次观察进度时只用中文简短说明当前状态。
 - 每次中间汇报都必须带“检查时间”，不要只说继续等待。
+- 不要输出完整技术日志，只输出关键状态和下一步。
 
 请只执行下面这些只读检查：
 
@@ -357,75 +388,120 @@ STATE=/tmp/openclaw-miloco-install.state
 PIDFILE=/tmp/openclaw-miloco-install.pid
 CHECK_TIME="$(date '+%F %T %Z')"
 
+progress_text() {
+  case "$1" in
+    STEP_1_DONE) echo "✅ Step 1/6：依赖检查完成" ;;
+    STEP_2_DONE) echo "✅ Step 2/6：小龙虾环境检查完成" ;;
+    PLUGIN_READY) echo "✅ Step 3/6：插件准备完成" ;;
+    STEP_3_DONE) echo "✅ Step 4/6：馨光 AI 设计灯光环境安装完成" ;;
+    GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
+      echo "⚠️ Step 5/6：小龙虾后台服务正在重启，页面可能短暂异常。请等待 1–3 分钟后刷新页面。"
+      ;;
+    GATEWAY_RESTART_DONE) echo "✅ 小龙虾后台服务重启完成，继续检查安装结果" ;;
+    STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) echo "✅ Step 6/6：安装完成" ;;
+    EXITED_BUT_INCOMPLETE) echo "⚠️ 安装没有完整结束，可查看下一步处理方式" ;;
+    ERROR:*) echo "⚠️ 安装出现异常" ;;
+  esac
+}
+
 echo "检查时间: $CHECK_TIME"
 echo "状态文件: $STATE"
 echo "日志文件: $LOG"
 
+RUNNING="否"
 if [ -f "$PIDFILE" ]; then
   PID="$(cat "$PIDFILE" 2&gt;/dev/null || true)"
-  echo "后台任务编号: ${PID:-none}"
-  if [ -n "$PID" ]; then
-    ps -p "$PID" -o pid,etime,stat,cmd 2&gt;/dev/null || true
+  if [ -n "$PID" ] &amp;&amp; ps -p "$PID" &gt;/dev/null 2&gt;&amp;1; then
+    RUNNING="是"
   fi
+fi
+echo "是否仍在运行: $RUNNING"
+
+echo "--- 当前状态 ---"
+if [ -f "$STATE" ]; then
+  awk '
+    /STEP_1_DONE|STEP_2_DONE|PLUGIN_READY|STEP_3_DONE|GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE|STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT|EXITED_BUT_INCOMPLETE|ERROR:/ {
+      print
+    }
+  ' "$STATE" | tail -n 20 | while read -r marker; do progress_text "$marker"; done | awk '!seen[$0]++'
 else
-  echo "后台任务编号: none"
+  echo "暂未找到状态文件"
 fi
 
-echo "--- 最近状态 ---"
-tail -n 80 "$STATE" 2&gt;/dev/null || echo "暂未找到状态文件"
+if grep -qE 'STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT' "$STATE" 2&gt;/dev/null; then
+  CURRENT_STATUS="安装完成"
+  CURRENT_STEP="Step 6/6"
+  NEXT_ACTION="绑定米家账号；绑定完成后，如果账号下有多个家庭，请选择馨光设备所在的家庭；家庭选择完成后，再继续安装馨光 Skill。"
+elif grep -q 'STEP_3_DONE' "$STATE" 2&gt;/dev/null; then
+  CURRENT_STATUS="仍在安装"
+  CURRENT_STEP="正在做收尾检查"
+  NEXT_ACTION="继续等待；如果页面短暂异常，等待 1–3 分钟后刷新页面，再发送「查看安装进度」。"
+elif grep -q 'STEP_2_DONE' "$STATE" 2&gt;/dev/null; then
+  CURRENT_STATUS="仍在安装"
+  CURRENT_STEP="正在安装馨光 AI 设计灯光环境"
+  NEXT_ACTION="继续等待。"
+elif grep -q 'STEP_1_DONE' "$STATE" 2&gt;/dev/null; then
+  CURRENT_STATUS="仍在安装"
+  CURRENT_STEP="正在检查小龙虾环境"
+  NEXT_ACTION="继续等待。"
+elif grep -q 'EXITED_BUT_INCOMPLETE' "$STATE" 2&gt;/dev/null; then
+  CURRENT_STATUS="未完成"
+  CURRENT_STEP="安装任务已中断或退出"
+  NEXT_ACTION="请联系技术人员按状态文件继续处理，不要重复发送一键部署指令。"
+else
+  CURRENT_STATUS="刚启动或暂未写入状态"
+  CURRENT_STEP="等待第一步完成"
+  NEXT_ACTION="请稍后再查看。"
+fi
 
-echo "--- 最近日志 ---"
-tail -n 120 "$LOG" 2&gt;/dev/null || echo "暂未找到日志"
+echo "--- 用户化摘要 ---"
+echo "当前状态: $CURRENT_STATUS"
+echo "当前步骤: $CURRENT_STEP"
+echo "下一步该做什么: $NEXT_ACTION"
 
-echo "--- 关键结果 ---"
-grep -E 'SUCCESS|STEP_[0-9]+_DONE|ERROR|Failed|Traceback|timeout|timed out' "$STATE" "$LOG" 2&gt;/dev/null | tail -n 80 || true
+echo "--- 最近关键日志 ---"
+grep -E 'SUCCESS|STEP_[0-9]+_DONE|GATEWAY_RESTART|AGENTCHAT_RECONNECT|ERROR|Failed|Traceback|timeout|timed out' "$STATE" "$LOG" 2&gt;/dev/null | tail -n 30 || echo "暂未发现关键日志"
 ```
 
 然后用中文告诉我：
 
-1. 本次检查时间。
-2. 当前是否仍在安装。
-3. 最后完成到哪一步。
-4. 有没有看到 `SUCCESS_AFTER_RECONNECT`、`SUCCESS_ACTIVE` 或 `STEP_6_DONE`。
-5. 最近有没有 ERROR / Failed / Traceback / timeout。
-6. 我是否需要继续等待。
-
-如果成功，使用这个模板：
-
 ```text
-馨光 AI 设计灯光安装结果
+馨光 AI 设计灯光安装进度
 
-状态：成功
-脚本版本：
-最终状态：
-日志文件：
-
-下一步需要人工处理：
-1. 配置 MiMo API Key
-2. 绑定米家账号
-3. 确认馨光淡彩光设备已出现在设备列表
-4. 安装馨光 Skill
+检查时间：
+当前状态：
+当前步骤：
+是否仍在运行：
+下一步该做什么：
+最近关键日志：
 ```
 
-如果还没完成，使用这个模板：
+如果看到安装完成，必须使用这个下一步向导：
 
 ```text
-馨光 AI 设计灯光安装结果
+馨光 AI 设计灯光环境安装完成 ✅
 
-状态：仍在安装 / 未完成
-检查时间：
-最后完成步骤：
-最后日志：
-是否需要继续等待：
+下一步：绑定米家账号
 
-说明：
-如果安装过程中页面短暂异常，通常是小龙虾后台服务正在重启。
-请等待 1～3 分钟后刷新页面。
+请继续回复：
+绑定米家账号
+
+绑定完成后，如果你的账号下有多个家庭，请选择馨光设备所在的家庭。
+家庭选择完成后，再继续安装馨光 Skill。
+```
+
+如果还没完成，使用这个说明：
+
+```text
+安装仍在后台继续。
+如果页面短暂异常，通常是小龙虾后台服务正在重启。
+请等待 1–3 分钟后刷新页面。
 刷新后如果是空白对话框，直接发送「查看安装进度」。
 不要重复发送一键部署指令。
 ```
 
-如果多次刷新后仍无法查看进度，请联系技术人员处理。</textarea>
+如果多次刷新后仍无法查看进度，请联系技术人员处理。
+</textarea>
         </div>
       </section>
 
@@ -436,11 +512,11 @@ grep -E 'SUCCESS|STEP_[0-9]+_DONE|ERROR|Failed|Traceback|timeout|timed out' "$ST
           <div class="card"><h3>刷新后是空白对话框怎么办？</h3><p>直接发送「查看安装进度」。</p></div>
           <div class="card"><h3>能不能重复发送一键部署指令？</h3><p>不要重复发送。后台任务启动后，需要确认状态时只发送「查看安装进度」。</p></div>
           <div class="card"><h3>怎么查看安装进度？</h3><p>复制本页「查看安装进度」内容，发给小龙虾。</p></div>
-          <div class="card"><h3>安装完成后下一步做什么？</h3><p>配置灯光能力所需的 MiMo API Key，绑定米家账号，选择要使用的米家家庭，然后安装馨光 Skill。</p></div>
+          <div class="card"><h3>安装完成后下一步做什么？</h3><p>配置灯光能力所需的 MiMo API Key，绑定米家账号，然后安装馨光 Skill。如果你的米家账号下有多个家庭，请选择馨光设备所在的家庭。</p></div>
           <div class="card"><h3>为什么还不能直接控制灯光？</h3><p>完成本页安装后，还需要继续完成 MiMo API Key、米家账号、米家家庭选择和馨光 Skill 安装，才能进行灯光控制测试。</p></div>
           <div class="card"><h3>MiMo API Key 要配置几次？</h3><p>小龙虾本身需要配置一次。安装完成后，馨光 AI 设计灯光能力也需要配置一次。如果你使用的是同一个 Key，可以在两个位置填写同一个 Key。</p></div>
           <div class="card"><h3>米家账号什么时候绑定？</h3><p>安装完成后，在配置灯光效果前按提示绑定米家账号。</p></div>
-          <div class="card"><h3>馨光 Skill 什么时候安装？</h3><p>完成前面步骤后，可以继续安装馨光 Skill。安装完成后，直接用自然语言告诉小龙虾想要的灯光效果。</p></div>
+          <div class="card"><h3>馨光 Skill 什么时候安装？</h3><p>完成前面步骤后，可以继续安装馨光 Skill。安装完成后，如果有多个米家家庭，先选择馨光设备所在家庭，然后直接用自然语言告诉小龙虾想要的灯光效果。</p></div>
         </div>
         <div class="notice warn">如果多次刷新后仍无法查看进度，请联系技术人员处理。</div>
       </section>

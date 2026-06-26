@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.3"
+SCRIPT_VERSION="2026-06-25.4"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -194,6 +194,121 @@ write_supervisor_launcher() {
   chmod +x "$launcher"
 }
 
+progress_message_for_marker() {
+  case "$1" in
+    STEP_1_DONE)
+      printf '✅ Step 1/6：依赖检查完成\n'
+      ;;
+    STEP_2_DONE)
+      printf '✅ Step 2/6：小龙虾环境检查完成\n'
+      ;;
+    PLUGIN_READY)
+      printf '✅ Step 3/6：插件准备完成\n'
+      ;;
+    STEP_3_DONE)
+      printf '✅ Step 4/6：馨光 AI 设计灯光环境安装完成\n'
+      ;;
+    GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
+      cat <<'EOF'
+⚠️ Step 5/6：小龙虾后台服务正在重启，页面可能短暂异常。
+请等待 1–3 分钟后刷新页面。
+刷新后如果是空白对话框，直接发送「查看安装进度」。
+不要重复发送一键部署指令。
+EOF
+      ;;
+    GATEWAY_RESTART_DONE)
+      printf '✅ 小龙虾后台服务重启完成，继续检查安装结果\n'
+      ;;
+    STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
+      printf '✅ Step 6/6：安装完成\n'
+      ;;
+    ERROR:*|EXITED_BUT_INCOMPLETE)
+      printf '⚠️ 安装没有完整结束，请发送「查看安装进度」确认当前状态。\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+emit_progress_updates() {
+  local seen_file="$1"
+  [[ -f "$STATE_FILE" ]] || return 0
+
+  local marker message key
+  while IFS= read -r marker; do
+    message="$(progress_message_for_marker "$marker" || true)"
+    [[ -n "$message" ]] || continue
+    key="$marker"
+    case "$marker" in
+      GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED) key="RECONNECT_EXPECTED" ;;
+      STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) key="INSTALL_COMPLETE" ;;
+      ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
+    esac
+    if ! grep -Fxq "$key" "$seen_file" 2>/dev/null; then
+      printf '%s\n' "$message"
+      printf '%s\n' "$key" >>"$seen_file"
+    fi
+  done <"$STATE_FILE"
+}
+
+background_pid_running() {
+  local pid=""
+  if [[ -s "$PID_FILE" ]]; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  fi
+  [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" >/dev/null 2>&1
+}
+
+observe_background_progress() {
+  local max_seconds="${FRONT_PROGRESS_MAX_SECONDS:-480}"
+  local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-15}"
+  local elapsed=0
+  local seen_file="$WORK_DIR/frontend-progress-seen.txt"
+  : >"$seen_file"
+
+  cat <<EOF
+
+开始观察安装进度，最多观察 $((max_seconds / 60)) 分钟。
+只在关键步骤变化时播报，不会持续刷完整日志。
+EOF
+
+  while (( elapsed <= max_seconds )); do
+    emit_progress_updates "$seen_file"
+    if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+      print_next_actions
+      return 0
+    fi
+    if (( elapsed >= max_seconds )); then
+      break
+    fi
+    sleep "$interval"
+    elapsed=$((elapsed + interval))
+  done
+
+  emit_progress_updates "$seen_file"
+  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+    print_next_actions
+    return 0
+  fi
+
+  if background_pid_running; then
+    cat <<EOF
+
+安装仍在后台继续。
+我先不继续占用对话窗口。请稍后发送「查看安装进度」确认当前阶段。
+不要重复发送一键部署指令。
+EOF
+  else
+    cat <<EOF
+
+后台任务当前没有继续运行，但安装状态还未确认完成。
+请发送「查看安装进度」查看当前步骤和下一步处理方式。
+不要重复发送一键部署指令。
+EOF
+  fi
+}
+
 launch_background_supervisor() {
   local launcher="/tmp/openclaw-miloco-install-supervisor.sh"
   local start_method="setsid-nohup"
@@ -226,18 +341,19 @@ launch_background_supervisor() {
   cat <<EOF
 馨光 AI 设计灯光后台部署已启动
 脚本版本：$SCRIPT_VERSION
-后台任务：$start_method${unit:+ / $unit}
+后台任务：已启动
 进程 PID：${pid:-稍后写入 $PID_FILE}
 日志文件：$LOG_FILE
 状态文件：$STATE_FILE
 
 说明：
 部署任务已在服务器后台运行。
-如果页面稍后出现 OpenClaw 网关异常，通常是 Gateway 正在重启。
-请等待 1～3 分钟后刷新页面。
+如果页面稍后短暂异常，通常是小龙虾后台服务正在重启。
+请等待 1–3 分钟后刷新页面。
 如果刷新后出现空白对话框，直接发送「查看安装进度」。
 不要重复发送一键部署指令。
 EOF
+  observe_background_progress
 }
 
 die() {
@@ -1346,23 +1462,61 @@ State file: $STATE_FILE
 EOF
 }
 
+account_bound_known() {
+  setup_runtime_paths >/dev/null 2>&1 || true
+  have miloco-cli || return 1
+
+  local status_file="$WORK_DIR/account-status.txt"
+  for args in "account status" "account info" "config get account"; do
+    if timeout 20s miloco-cli $args >"$status_file" 2>/dev/null && [[ -s "$status_file" ]]; then
+      if grep -Eiq '"is_bound"[[:space:]]*:[[:space:]]*true|is_bound[[:space:]]*[:=][[:space:]]*true|bound[[:space:]]*[:=][[:space:]]*true|已绑定' "$status_file"; then
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+xinguang_home_selected_known() {
+  [[ -f "$HOME/wainfort-light/target-home.env" ]] && return 0
+  [[ -f /tmp/xinguang-skill-install.state ]] &&
+    grep -Eq 'HOME_SELECTION_SINGLE_HOME_AUTO|HOME_SWITCH_DONE|DEVICE_LIST_READY|XINGUANG_SKILL_INSTALL_DONE' /tmp/xinguang-skill-install.state
+}
+
+xinguang_skill_installed_known() {
+  [[ -f /tmp/xinguang-skill-install.state ]] &&
+    grep -Eq 'XINGUANG_SKILL_INSTALL_DONE|LIGHT_TEST_SUCCESS|PHYSICAL_SUCCESS_API_FALSE' /tmp/xinguang-skill-install.state
+}
+
 print_next_actions() {
+  local next_title="绑定米家账号"
+  local next_reply="绑定米家账号"
+  local detail="绑定完成后，如果你的账号下有多个家庭，请选择馨光设备所在的家庭。家庭选择完成后，再继续安装馨光 Skill。"
+
+  if xinguang_skill_installed_known; then
+    next_title="开始灯光测试"
+    next_reply="客厅设计一个马尔代夫灯光效果。"
+    detail="你也可以输入“二楼客厅来一个森林晨光”或“保存当前灯光效果到快照 3”。"
+  elif xinguang_home_selected_known; then
+    next_title="安装馨光 Skill"
+    next_reply="安装馨光 Skill"
+    detail="安装完成后，就可以直接用自然语言告诉小龙虾想要的灯光效果。"
+  elif account_bound_known; then
+    next_title="选择馨光设备所在家庭"
+    next_reply="选择米家家庭"
+    detail="如果你的账号下只有一个家庭，小龙虾可以继续；如果有多个家庭，请选择馨光设备所在的家庭。"
+  fi
+
   cat <<EOF
 
-Next manual steps:
-  1. Configure model key if not supplied:
-     miloco-cli config set model.omni.api_key sk-xxx
-  2. Bind Mi Home account when ready:
-     miloco-cli account bind
-  3. Confirm Xingguang light devices are visible:
-     miloco-cli device list
-  4. Bind personal WeChat later:
-     INSTALL_ACTION=weixin RUN_SYSTEM_UPGRADE=0 bash /tmp/install-miloco-openclaw-cloud.sh
-  5. Install the Xingguang intelligent Skill later in phase 2.
-  6. The Miloco dashboard listens on the cloud server loopback only.
-     If you need to open it from your computer, keep an SSH tunnel running:
-     ssh -L 1810:127.0.0.1:1810 <user>@<server>
-     then visit http://127.0.0.1:1810/ on your computer.
+馨光 AI 设计灯光环境安装完成 ✅
+
+下一步：$next_title
+
+请继续回复：
+$next_reply
+
+$detail
 EOF
 }
 

@@ -712,14 +712,14 @@ for obj in walk(raw):
     if key in seen:
         continue
     seen.add(key)
-    items.append((name or "未命名", room or "未返回", online_text(obj), model or "未返回"))
+    items.append((name or "未命名", room or "未返回", online_text(obj)))
 
 with open(report_path, "w", encoding="utf-8") as handle:
     if not items:
         handle.write("该家庭下暂未读取到设备。\n")
     else:
-        for index, (name, room, online, model) in enumerate(items, 1):
-            handle.write(f"{index}. 设备：{name}；房间：{room}；在线状态：{online}；model：{model}\n")
+        for index, (name, room, online) in enumerate(items, 1):
+            handle.write(f"{index}. 设备：{name}；房间：{room}；在线状态：{online}\n")
 
 print(f"设备数量：{len(items)}")
 PY
