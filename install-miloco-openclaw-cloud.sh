@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.26"
+SCRIPT_VERSION="2026-06-25.27"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -214,43 +214,43 @@ format_elapsed_mmss() {
 terminal_marker_fields() {
   case "$1" in
     INSTALL_STARTED|BACKGROUND_SUPERVISOR_STARTED)
-      printf '1|start|正在启动安装|10\n'
+      printf '1|start|正在启动安装|3\n'
       ;;
     STEP_1_STARTED)
-      printf '10|system|正在检查系统环境|10\n'
+      printf '4|system|正在检查系统环境|5\n'
       ;;
     STEP_1_DONE)
-      printf '20|deps|正在准备必要依赖|20\n'
+      printf '6|deps|正在准备必要依赖|7\n'
       ;;
     STEP_2_STARTED)
-      printf '30|openclaw_check|正在检查小龙虾环境|30\n'
+      printf '8|openclaw_install|正在安装小龙虾|44\n'
       ;;
     STEP_2_DONE)
-      printf '40|openclaw_update|正在更新小龙虾环境|40\n'
+      printf '45|openclaw_done|正在配置小龙虾|48\n'
       ;;
     STEP_3_STARTED)
-      printf '50|connector|正在安装灯光连接组件|55\n'
+      printf '50|connector|正在安装灯光插件|54\n'
       ;;
     LIGHT_COMPONENT_DOWNLOAD_STARTED)
-      printf '60|download|正在下载灯光组件|65\n'
+      printf '55|download|正在下载灯光组件|60\n'
       ;;
     LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED)
-      printf '70|service|正在安装灯光服务|75\n'
+      printf '62|service|正在安装灯光服务|65\n'
       ;;
     STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED)
-      printf '76|installer|正在预置馨光 Skill 安装器|85\n'
+      printf '66|installer|正在预置馨光 Skill 安装器|69\n'
       ;;
     XINGUANG_SKILL_INSTALLER_READY)
-      printf '85|installer|正在预置馨光 Skill 安装器|85\n'
+      printf '70|installer|正在预置馨光 Skill 安装器|72\n'
       ;;
     STEP_5_DONE|GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
-      printf '86|gateway_recover|正在恢复小龙虾后台服务|95\n'
+      printf '73|gateway_recover|正在启动小龙虾服务|92\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE)
-      printf '90|gateway_recover|正在恢复小龙虾后台服务|95\n'
+      printf '80|gateway_recover|正在启动小龙虾服务|92\n'
       ;;
     STEP_6_STARTED)
-      printf '96|verify|正在验证安装结果|99\n'
+      printf '93|verify|正在验证安装结果|99\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
       printf '100|complete|安装完成|100\n'
@@ -2185,7 +2185,8 @@ write_xinguang_workspace_rules() {
 2. 如果本地命令不可用，执行：bash ~/xinguang-ai-light/install-xinguang-ai-skill.sh
 3. 只显示：
 
-正在安装馨光 Skill，请稍候。
+正在安装馨光 Skill，大约需要 2 分钟，请耐心等待。
+安装完成后会自动通知您，请勿重复发送消息。
 
 4. 安装成功后只回复：
 
