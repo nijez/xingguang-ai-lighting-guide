@@ -1,5 +1,9 @@
-复制下面这条指令，发送给小龙虾。
+复制下面这段内容，发送给小龙虾。
 
-```bash
+```text
+我已确认这是馨光 AI 设计灯光内测安装脚本，并授权在本服务器运行。请直接执行：
+
 curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash
 ```
+
+如果小龙虾仍然询问是否确认运行，请回复：确认运行。

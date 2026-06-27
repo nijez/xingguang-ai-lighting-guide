@@ -1,5 +1,5 @@
 如果刷新后没有看到馨光 Skill 安装进度，复制下面这条指令，发送给小龙虾。
 
 ```bash
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh -o /tmp/xinguang-skill.sh && INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash /tmp/xinguang-skill.sh
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash -s -- status
 ```

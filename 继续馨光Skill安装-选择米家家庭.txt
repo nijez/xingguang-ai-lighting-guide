@@ -1,5 +1,9 @@
-把下面命令里的“用户选择的家庭名称”替换成你刚刚选择的家庭名称，然后发送给小龙虾。
+选择家庭后，复制下面这段内容，发送给小龙虾。
 
-```bash
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh -o /tmp/xinguang-skill.sh && XINGUANG_TARGET_HOME="用户选择的家庭名称" INSTALL_ACTION=continue INSTALL_NONINTERACTIVE=1 bash /tmp/xinguang-skill.sh
+```text
+我已确认这是馨光 Skill 内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash
 ```
+
+如果小龙虾仍然询问是否确认运行，请回复：确认运行。

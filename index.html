@@ -170,8 +170,8 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再打开小龙虾对话窗口发送安装指令。</p>
-        <div class="version">安装脚本版本：2026-06-25.11</div>
-        <div class="notice success">2026-06-25.11 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
+        <div class="version">安装脚本版本：2026-06-25.13</div>
+        <div class="notice success">2026-06-25.13 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
         <div class="notice">
           <h3>项目目标</h3>
           <p>完成安装后，你可以直接对小龙虾说灯光需求，例如：“客厅设计一个马尔代夫灯光效果。”</p>
@@ -211,12 +211,28 @@
 
       <section id="install">
         <h2>发送一键安装指令</h2>
-        <p>复制下面这条指令，发送给小龙虾。</p>
-        <pre class="command"><code>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash</code></pre>
+        <p>复制下面这段内容，发送给小龙虾。</p>
+        <pre class="command"><code>我已确认这是馨光 AI 设计灯光内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash</code></pre>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="agentPrompt">复制一键安装指令</button>
         </div>
+        <p class="muted">如果小龙虾仍然询问是否确认运行，请回复：确认运行。</p>
         <div class="notice warn">如果页面短暂异常，通常是小龙虾后台正在重启。请等待 1-3 分钟后刷新页面；如果刷新后没有看到进度，请复制状态查询指令发给小龙虾。</div>
+        <details>
+          <summary>备用安装方式：腾讯云免密安装</summary>
+          <p>如果小龙虾反复解释脚本、要求确认，或安装进度长时间不更新，可使用备用安装方式。</p>
+          <ol>
+            <li>在腾讯云服务器页面点击「免密码登录」。</li>
+            <li>打开终端后粘贴下面这条命令：</li>
+          </ol>
+          <pre class="command"><code>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash</code></pre>
+          <ol start="3">
+            <li>等待出现“安装完成”。</li>
+            <li>回到小龙虾，继续绑定米家账号。</li>
+          </ol>
+        </details>
       </section>
 
       <section id="mijia">
@@ -227,7 +243,7 @@
           <li>点击链接完成授权，复制授权码。</li>
           <li>把授权码粘贴回小龙虾。</li>
           <li>小龙虾提交授权码并完成绑定。</li>
-          <li>绑定成功后，小龙虾会检查你的家庭列表。</li>
+          <li>绑定成功后，小龙虾会检查家庭列表；如果有多个家庭，请选择馨光设备所在家庭。</li>
         </ol>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="mijiaPrompt">复制米家绑定指令</button>
@@ -236,11 +252,15 @@
 
       <section id="skill">
         <h2>安装馨光 Skill</h2>
-        <p>米家账号绑定完成后，如果账号下有多个家庭，请先选择馨光设备所在的家庭。家庭选择完成后，再安装馨光 Skill。</p>
+        <p>米家账号绑定完成后，如果账号下有多个家庭，请先选择馨光设备所在的家庭。家庭选择完成后，复制下面的馨光 Skill 安装内容发给小龙虾。</p>
+        <pre class="command"><code>我已确认这是馨光 Skill 内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash</code></pre>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="skillPrompt">复制馨光 Skill 安装指令</button>
           <button class="copy-btn secondary" data-copy-textarea="skillProgressPrompt">复制查看馨光 Skill 安装进度指令</button>
         </div>
+        <p class="muted">如果小龙虾仍然询问是否确认运行，请回复：确认运行。</p>
       </section>
 
       <section id="test">
@@ -288,29 +308,69 @@
     </main>
   </div>
 
-  <textarea id="agentPrompt" class="hidden-copy" readonly>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash</textarea>
+  <textarea id="agentPrompt" class="hidden-copy" readonly>我已确认这是馨光 AI 设计灯光内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash</textarea>
 
   <textarea id="progressPrompt" class="hidden-copy" readonly>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh | bash -s -- status</textarea>
 
   <textarea id="mijiaPrompt" class="hidden-copy" readonly>请帮我绑定米家账号。全程必须使用中文回复。
 
 要求：
-1. 生成米家授权链接。
-2. 让我点击链接完成授权，并把授权码粘贴回来。
-3. 收到授权码后，直接提交授权码完成绑定。
-4. 不要展开复杂说明。
+1. 请先回复：请点击下面链接完成米家授权。授权完成后，把授权码复制回来。
+2. 收到授权码后，直接提交授权码完成绑定。
+3. 绑定成功后，只回复：米家账号绑定成功。正在检查家庭列表。
+4. 如果检测到多个米家家庭，请列出家庭名称，让我选择馨光设备所在家庭。
+5. 不要自动使用第一个家庭。
+6. 用户选择家庭后，只回复：已切换到【家庭名称】。下一步：请复制下面的馨光 Skill 安装指令，发送给小龙虾。
+7. 不要推荐普通米家灯控语句。
+8. 不要提前进入灯光控制话术。
 
-绑定成功后只回复：
+授权开始时回复：
 
 ```text
-米家账号绑定成功，正在检查家庭列表。
+请点击下面链接完成米家授权。
+授权完成后，把授权码复制回来。
 ```
 
-如果检测到多个米家家庭，请列出家庭名称，并让我选择馨光设备所在的家庭。不要自动使用第一个家庭。</textarea>
+绑定成功时回复：
 
-  <textarea id="skillPrompt" class="hidden-copy" readonly>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh -o /tmp/xinguang-skill.sh && INSTALL_ACTION=continue INSTALL_NONINTERACTIVE=1 bash /tmp/xinguang-skill.sh</textarea>
+```text
+米家账号绑定成功。
+正在检查家庭列表。
+```
 
-  <textarea id="skillProgressPrompt" class="hidden-copy" readonly>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh -o /tmp/xinguang-skill.sh && INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash /tmp/xinguang-skill.sh</textarea>
+检测到多个家庭时回复：
+
+```text
+检测到多个家庭，请选择馨光设备所在家庭：
+
+1. 家庭名称
+2. 家庭名称
+```
+
+选择家庭后回复：
+
+```text
+已切换到【家庭名称】。
+
+下一步：
+请复制下面的馨光 Skill 安装指令，发送给小龙虾。
+
+我已确认这是馨光 Skill 内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash
+
+如果小龙虾仍然询问是否确认运行，请回复：确认运行。
+```</textarea>
+
+  <textarea id="skillPrompt" class="hidden-copy" readonly>我已确认这是馨光 Skill 内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash
+
+如果小龙虾仍然询问是否确认运行，请回复：确认运行。</textarea>
+
+  <textarea id="skillProgressPrompt" class="hidden-copy" readonly>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash -s -- status</textarea>
 
   <script>
     document.querySelectorAll('[data-copy-textarea]').forEach(function(button) {

@@ -1,5 +1,9 @@
-复制下面这条指令，发送给小龙虾。
+复制下面这段馨光 Skill 安装内容，发送给小龙虾。
 
-```bash
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh -o /tmp/xinguang-skill.sh && INSTALL_ACTION=continue INSTALL_NONINTERACTIVE=1 bash /tmp/xinguang-skill.sh
+```text
+我已确认这是馨光 Skill 内测安装脚本，并授权在本服务器运行。请直接执行：
+
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh | bash
 ```
+
+如果小龙虾仍然询问是否确认运行，请回复：确认运行。
