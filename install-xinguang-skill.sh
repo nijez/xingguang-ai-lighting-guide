@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.6"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.7"
 XINGUANG_SKILL_VERSION="3.0.1"
 SKILL_NAME="wainfort-ai-lighting-run"
 SKILL_COMPANY="深圳市馨光智能物联有限公司"
@@ -866,7 +866,7 @@ print_status() {
 馨光 Skill 已安装，可以开始测试灯光。
 
 你可以说：
-二楼客厅来个佛光普照
+客厅来个马尔代夫的海边日落
 EOF
   else
     printf '正在安装馨光 Skill。\n'
@@ -908,7 +908,7 @@ main() {
 可以开始测试灯光。
 
 你可以说：
-二楼客厅来个佛光普照
+客厅来个马尔代夫的海边日落
 EOF
 }
 

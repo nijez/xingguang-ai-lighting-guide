@@ -170,11 +170,11 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再打开小龙虾对话窗口发送安装指令。</p>
-        <div class="version">安装脚本版本：2026-06-25.15</div>
-        <div class="notice success">2026-06-25.15 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
+        <div class="version">安装脚本版本：2026-06-25.16</div>
+        <div class="notice success">2026-06-25.16 为今晚内测版本。页面只保留内测用户需要执行的下一步。</div>
         <div class="notice">
           <h3>项目目标</h3>
-          <p>完成安装后，你可以直接对小龙虾说灯光需求，例如：“二楼客厅来个马尔代夫的海边。”</p>
+          <p>完成安装后，你可以直接对小龙虾说灯光需求，例如：“客厅来个马尔代夫的海边日落。”</p>
           <p>小龙虾会通过馨光 Skill 控制馨光设备，并在请求发出后让你现场确认灯光是否变化。</p>
         </div>
       </section>
@@ -265,10 +265,9 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
         <h2>测试灯光效果</h2>
         <p>馨光 Skill 安装完成后，直接告诉小龙虾想要的灯光效果。</p>
         <div class="grid">
-          <div class="card">二楼客厅来个马尔代夫的海边。</div>
+          <div class="card">客厅来个马尔代夫的海边日落。</div>
           <div class="card">二楼客厅来一个森林晨光。</div>
           <div class="card">全屋灯带做一个朋友聚会氛围。</div>
-          <div class="card">二楼客厅来个佛光普照。</div>
         </div>
         <div class="notice">
           <p>小龙虾发出灯光请求后，只需要现场观察灯光是否变化。</p>
@@ -315,7 +314,13 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
   <textarea id="mijiaPrompt" class="hidden-copy" readonly>请帮我绑定米家账号。全程必须使用中文回复。
 
 要求：
-1. 请先回复：请点击下面链接完成米家授权。授权完成后，把授权码复制回来。
+1. 请先生成米家授权链接，并只按下面格式回复，不要放进代码块，不要重复显示链接：
+
+请点击下面链接完成米家授权：
+
+[点击打开米家授权链接](授权链接)
+
+授权完成后，把授权码复制回来。
 2. 收到授权码后，直接提交授权码完成绑定。
 3. 绑定成功后，只回复：米家账号绑定成功。正在检查家庭列表。
 4. 如果检测到多个米家家庭，请列出家庭名称，让我选择馨光设备所在家庭。
@@ -323,13 +328,15 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
 6. 用户选择家庭后，只回复：已切换到【家庭名称】。下一步：请复制下面的馨光 Skill 安装指令，发送给小龙虾。
 7. 不要推荐普通米家灯控语句。
 8. 不要提前进入灯光控制话术。
+9. 不要显示内部命令、内部工具、授权码解析过程或当前默认家庭。
 
-授权开始时回复：
+授权开始时只回复下面内容，不要使用代码块：
 
-```text
-请点击下面链接完成米家授权。
+请点击下面链接完成米家授权：
+
+[点击打开米家授权链接](授权链接)
+
 授权完成后，把授权码复制回来。
-```
 
 绑定成功时回复：
 

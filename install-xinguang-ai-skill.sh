@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-26.6"
-INSTALLER_VERSION="2026-06-26.6"
+ENTRY_VERSION="2026-06-26.7"
+INSTALLER_VERSION="2026-06-26.7"
 TARGET="${TARGET:-/tmp/xinguang-skill-install.sh}"
 ACTION="${1:-install}"
 

@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.15"
+SCRIPT_VERSION="2026-06-25.16"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -227,6 +227,43 @@ EOF
       return 1
       ;;
   esac
+}
+
+status_running_hint() {
+  if [[ "${RUN_CONTEXT:-}" == agentchat* ]]; then
+    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+  else
+    printf '\n请继续等待，不要重复执行安装命令。\n'
+  fi
+}
+
+status_complete_message() {
+  cat <<'EOF'
+当前进度：
+4/4 安装完成
+
+下一步：
+请回到小龙虾，发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」
+EOF
+}
+
+status_restart_message() {
+  if [[ "${RUN_CONTEXT:-}" == agentchat* ]]; then
+    cat <<'EOF'
+小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
+如果刷新后没有看到进度，请复制状态查询指令发给小龙虾。
+不要重复发送一键安装指令。
+EOF
+  else
+    cat <<'EOF'
+小龙虾后台服务正在重启，安装仍在继续。
+请稍等 1–3 分钟后重新运行：
+
+bash install-xinguang-ai-light.sh status
+
+不要重复执行安装命令。
+EOF
+  fi
 }
 
 emit_progress_updates() {
@@ -1483,7 +1520,7 @@ print_next_actions() {
 馨光 Skill 已安装，可以开始测试灯光。
 
 你可以说：
-二楼客厅来个佛光普照
+客厅来个马尔代夫的海边日落
 EOF
   elif xinguang_home_selected_known; then
     cat <<'EOF'
@@ -1775,25 +1812,21 @@ run_continue_deploy() {
 run_status_report() {
   state_init
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-    printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
+    status_complete_message
   elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
-    cat <<'EOF'
-小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-如果刷新后没有看到进度，请复制状态查询指令发给小龙虾。
-不要重复发送一键安装指令。
-EOF
+    status_restart_message
   elif state_has STEP_3_DONE || state_has STEP_4_STARTED || state_has STEP_4_DONE || state_has STEP_5_STARTED || state_has STEP_5_DONE || state_has STEP_6_STARTED || state_has GATEWAY_RESTART_DONE; then
     printf '当前进度：\n3/4 正在准备米家连接\n'
-    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+    status_running_hint
   elif state_has STEP_2_DONE || state_has STEP_3_STARTED || state_has PLUGIN_READY; then
     printf '当前进度：\n2/4 正在安装灯光插件\n'
-    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+    status_running_hint
   elif state_has STEP_1_STARTED || state_has STEP_1_DONE || state_has STEP_2_STARTED; then
     printf '当前进度：\n1/4 正在准备安装环境\n'
-    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+    status_running_hint
   else
     printf '当前进度：\n1/4 正在准备安装环境\n'
-    printf '\n请继续等待，不要重复发送一键安装指令。\n'
+    status_running_hint
   fi
 }
 
