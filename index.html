@@ -194,7 +194,7 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">安装交给腾讯云终端，对话交给小龙虾，灯光设计交给馨光 Skill。</p>
-        <div class="version">安装脚本版本：2026-06-25.27</div>
+        <div class="version">安装脚本版本：2026-06-25.28</div>
         <div class="notice success">推荐方式：在腾讯云服务器页面点击「免密码登录」，进入终端后粘贴安装命令。</div>
         <div class="notice">
           <h3>项目目标</h3>
@@ -220,7 +220,6 @@
         <h2>准备小龙虾服务器</h2>
         <p>购买腾讯云轻量应用服务器时，选择小龙虾（OpenClaw）应用模板。服务器创建完成后，先填写 MiMo 订阅 Key，再进入免密终端安装。</p>
         <img class="screenshot" src="screenshots/01-server-create.png" alt="腾讯云购买页选择小龙虾应用模板">
-        <img class="screenshot" src="screenshots/02-server-login.png" alt="腾讯云服务器页面点击免密码登录">
         <div class="grid">
           <a class="card" href="https://cloud.tencent.com/act/pro/openclaw" target="_blank" rel="noreferrer"><h3>购买腾讯云小龙虾服务器</h3><p>打开腾讯云活动页。</p></a>
           <a class="card" href="https://cloud.tencent.com/document/product/1207/127874" target="_blank" rel="noreferrer"><h3>查看腾讯云 OpenClaw 实践教程</h3><p>查看腾讯云官方实践教程。</p></a>
@@ -231,33 +230,42 @@
         <h2>填写 MiMo 订阅 Key</h2>
         <p>进入腾讯云小龙虾应用设置，填写 MiMo 订阅 Key。填写完成后，再进行终端安装。</p>
         <div class="notice">不要在小龙虾对话里反复粘贴 MiMo 订阅 Key。</div>
+        <div class="grid">
+          <a class="card" href="https://platform.xiaomimimo.com/console/plan-manage" target="_blank" rel="noreferrer"><h3>小米 MiMo 订阅管理 / 获取订阅 Key</h3><p>进入 MiMo 控制台获取订阅 Key。</p></a>
+        </div>
         <img class="screenshot" src="screenshots/03-mimo-key.png" alt="小龙虾应用设置中填写 MiMo 订阅 Key 并进入 AgentChat">
         <div class="notice">配置完成后，在「通道」区域点击「使用 AgentChat 即刻开始对话」。进入 AgentChat 后，默认选择「通用助手」，点击「下一步」，再点击「开启对话」。</div>
         <img class="screenshot" src="screenshots/03a-agentchat-default-assistant.png" alt="AgentChat 默认选择通用助手">
         <img class="screenshot" src="screenshots/03b-agentchat-ready.png" alt="通用助手就绪后点击开启对话">
-        <div class="grid">
-          <a class="card" href="https://platform.xiaomimimo.com/console/plan-manage" target="_blank" rel="noreferrer"><h3>小米 MiMo 订阅管理 / 获取订阅 Key</h3><p>进入 MiMo 控制台获取订阅 Key。</p></a>
-        </div>
       </section>
 
       <section id="install">
         <h2>推荐方式：腾讯云免密终端安装</h2>
         <p>在腾讯云服务器页面点击「免密码登录」，进入终端后粘贴下面这条命令。安装完成后，回到小龙虾对话窗口继续绑定米家账号。</p>
         <pre class="command"><code>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh && bash install-xinguang-ai-light.sh</code></pre>
+        <div class="copy-row">
+          <button class="copy-btn" data-copy-textarea="terminalInstallCommand">复制终端安装命令</button>
+        </div>
+        <p>如果终端窗口中断，可以在同一个终端运行状态查询命令。不要重复运行安装命令。</p>
+        <pre class="command"><code>bash install-xinguang-ai-light.sh status</code></pre>
+        <div class="copy-row">
+          <button class="copy-btn secondary" data-copy-textarea="terminalStatusCommand">复制终端状态查询命令</button>
+        </div>
+        <img class="screenshot" src="screenshots/02-server-login.png" alt="腾讯云服务器页面点击免密码登录">
         <img class="screenshot" src="screenshots/04-terminal-progress.png" alt="免密终端安装进度">
         <img class="screenshot" src="screenshots/05-terminal-done.png" alt="免密终端安装完成">
         <div class="notice">终端安装完成后，建议先到腾讯云「快照」页创建一次快照，后续测试需要回滚时更方便。</div>
         <img class="screenshot" src="screenshots/05a-create-snapshot.png" alt="腾讯云快照页创建快照">
-        <div class="copy-row">
-          <button class="copy-btn" data-copy-textarea="terminalInstallCommand">复制终端安装命令</button>
-          <button class="copy-btn secondary" data-copy-textarea="terminalStatusCommand">复制终端状态查询命令</button>
-        </div>
         <div class="notice">终端看到“安装完成”后，回到小龙虾，发送「绑定米家账号」。</div>
       </section>
 
       <section id="mijia">
         <h2>绑定米家账号</h2>
         <p>安装完成后，回到小龙虾对话窗口，直接说：<strong>绑定米家账号</strong>。</p>
+        <pre class="command"><code>绑定米家账号</code></pre>
+        <div class="copy-row">
+          <button class="copy-btn" data-copy-textarea="mijiaPrompt">复制米家绑定指令</button>
+        </div>
         <div class="screenshot-placeholder">screenshots/06-bind-link.png</div>
         <img class="screenshot" src="screenshots/06-authorize-confirm.png" alt="米家授权页点击确认授权">
         <img class="screenshot" src="screenshots/07-bind-code.png" alt="米家授权成功后复制授权信息">
@@ -268,9 +276,6 @@
           <li>把授权码粘贴回小龙虾。</li>
           <li>绑定成功后，小龙虾会检查家庭列表。</li>
         </ol>
-        <div class="copy-row">
-          <button class="copy-btn" data-copy-textarea="mijiaPrompt">复制米家绑定指令</button>
-        </div>
       </section>
 
       <section id="home">
@@ -346,43 +351,7 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
 
 curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh && bash install-xinguang-ai-light.sh</textarea>
 
-  <textarea id="mijiaPrompt" class="hidden-copy" readonly>请帮我绑定米家账号。全程必须使用中文回复。
-
-要求：
-1. 请先生成米家授权链接，并只按下面格式回复，不要放进代码块，不要重复显示链接：
-
-请点击下面链接完成米家授权：
-
-[点击打开米家授权链接](授权链接)
-
-授权完成后，把授权码复制回来。
-2. 收到授权码后，直接提交授权码完成绑定。不要解释授权码格式或内部命令，不要回显授权码。
-3. 绑定成功后，只先回复：
-米家账号绑定成功。
-正在检查家庭列表。
-4. 然后检查家庭列表。
-5. 如果只有一个家庭，只回复：
-米家账号绑定成功。
-已检测到当前家庭。
-
-下一步：
-请发送「安装馨光 Skill」。
-6. 如果检测到多个米家家庭，只回复：
-米家账号绑定成功。
-检测到多个家庭，请选择馨光设备所在家庭：
-
-1. 【家庭名称】
-2. 【家庭名称】
-7. 多家庭时必须等待用户选择。不要给任何家庭添加当前状态标记。必须用编号列出家庭。
-8. 用户可以输入编号，也可以输入家庭名称。用户选择家庭后，先切换到该家庭，并在后台执行本地保存动作：xinguang-set-home "【家庭名称】" "【家庭ID】"。如果暂时没有家庭ID，只保存家庭名称即可。不要向用户展示这个保存动作。
-9. 用户选择家庭后，只回复：
-已切换到【家庭名称】。
-
-下一步：
-请发送「安装馨光 Skill」。
-10. 不要进入其他设备或场景设置，不要引导查看设备，不要推荐普通米家灯控语句。
-11. 不要提前进入其他设备控制话术。
-12. 不要显示内部命令、内部工具、授权码解析过程或当前默认家庭。</textarea>
+  <textarea id="mijiaPrompt" class="hidden-copy" readonly>绑定米家账号</textarea>
 
   <textarea id="skillInstallPrompt" class="hidden-copy" readonly>请帮我安装馨光 Skill。全程必须使用中文回复。
 

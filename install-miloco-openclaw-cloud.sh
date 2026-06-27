@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.27"
+SCRIPT_VERSION="2026-06-25.28"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -223,34 +223,34 @@ terminal_marker_fields() {
       printf '6|deps|正在准备必要依赖|7\n'
       ;;
     STEP_2_STARTED)
-      printf '8|openclaw_install|正在安装小龙虾|44\n'
+      printf '8|openclaw_install|正在安装小龙虾|21\n'
       ;;
     STEP_2_DONE)
-      printf '45|openclaw_done|正在配置小龙虾|48\n'
+      printf '22|openclaw_done|正在配置小龙虾|23\n'
       ;;
     STEP_3_STARTED)
-      printf '50|connector|正在安装灯光插件|54\n'
+      printf '24|connector|正在安装灯光插件|25\n'
       ;;
     LIGHT_COMPONENT_DOWNLOAD_STARTED)
-      printf '55|download|正在下载灯光组件|60\n'
+      printf '26|download|正在下载灯光组件|27\n'
       ;;
     LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED)
-      printf '62|service|正在安装灯光服务|65\n'
+      printf '28|service|正在安装灯光服务|29\n'
       ;;
     STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED)
-      printf '66|installer|正在预置馨光 Skill 安装器|69\n'
+      printf '30|installer|正在预置馨光 Skill 安装器|31\n'
       ;;
     XINGUANG_SKILL_INSTALLER_READY)
-      printf '70|installer|正在预置馨光 Skill 安装器|72\n'
+      printf '32|installer|正在预置馨光 Skill 安装器|33\n'
       ;;
     STEP_5_DONE|GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
-      printf '73|gateway_recover|正在启动小龙虾服务|92\n'
+      printf '34|gateway_recover|正在启动小龙虾服务|90\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE)
-      printf '80|gateway_recover|正在启动小龙虾服务|92\n'
+      printf '46|gateway_recover|正在启动小龙虾服务|90\n'
       ;;
     STEP_6_STARTED)
-      printf '93|verify|正在验证安装结果|99\n'
+      printf '53|verify|正在验证安装结果|99\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
       printf '100|complete|安装完成|100\n'
@@ -550,7 +550,7 @@ install_failed_state() {
 observe_terminal_background_progress() {
   local max_seconds="${FRONT_PROGRESS_MAX_SECONDS:-1800}"
   local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-5}"
-  local heartbeat_seconds="${FRONT_PROGRESS_HEARTBEAT_SECONDS:-30}"
+  local heartbeat_seconds="${FRONT_PROGRESS_HEARTBEAT_SECONDS:-15}"
   local elapsed=0
   local heartbeat_elapsed=0
   local seen_file="$WORK_DIR/terminal-progress-seen.txt"
