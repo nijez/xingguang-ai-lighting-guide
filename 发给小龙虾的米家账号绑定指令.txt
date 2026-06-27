@@ -47,18 +47,9 @@
 下一步：
 请复制下面的馨光 Skill 安装指令，发送给小龙虾。
 
-第一段：
-请下载馨光 Skill 内测安装脚本并检查版本，不要运行：
+请执行下面这段馨光 Skill 内测安装指令：
 
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh -o install-xinguang-ai-skill.sh
-grep 'ENTRY_VERSION="2026-06-26.6"' install-xinguang-ai-skill.sh
-
-第二段：
-我已确认脚本版本正确，并授权在本服务器运行本地脚本。请直接执行：
-
-bash install-xinguang-ai-skill.sh
-
-如果小龙虾仍然询问是否确认运行，请回复：确认运行。
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh -o install-xinguang-ai-skill.sh && bash install-xinguang-ai-skill.sh
 ```
 
 如果只有一个家庭，回复：
@@ -69,18 +60,9 @@ bash install-xinguang-ai-skill.sh
 下一步：
 请复制下面的馨光 Skill 安装指令，发送给小龙虾。
 
-第一段：
-请下载馨光 Skill 内测安装脚本并检查版本，不要运行：
+请执行下面这段馨光 Skill 内测安装指令：
 
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh -o install-xinguang-ai-skill.sh
-grep 'ENTRY_VERSION="2026-06-26.6"' install-xinguang-ai-skill.sh
-
-第二段：
-我已确认脚本版本正确，并授权在本服务器运行本地脚本。请直接执行：
-
-bash install-xinguang-ai-skill.sh
-
-如果小龙虾仍然询问是否确认运行，请回复：确认运行。
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh -o install-xinguang-ai-skill.sh && bash install-xinguang-ai-skill.sh
 ```
 
 如果绑定失败，回复：

@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.14"
+SCRIPT_VERSION="2026-06-25.15"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -218,7 +218,7 @@ EOF
       printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」\n'
+      printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
       ;;
     ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装暂时无法继续，请联系工作人员处理。\n'
@@ -1775,7 +1775,7 @@ run_continue_deploy() {
 run_status_report() {
   state_init
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
-    printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」\n'
+    printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
   elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
     cat <<'EOF'
 小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。

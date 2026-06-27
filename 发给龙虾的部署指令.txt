@@ -1,18 +1,5 @@
-先复制下面第一段，发送给小龙虾。它只负责下载并检查脚本，不会运行。
-
 ```text
-请下载馨光 AI 设计灯光内测安装脚本并检查版本，不要运行：
+请执行下面这段馨光 AI 设计灯光内测安装指令：
 
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh
-grep 'ENTRY_VERSION="2026-06-25.14"' install-xinguang-ai-light.sh
+curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh && bash install-xinguang-ai-light.sh
 ```
-
-看到版本正确后，再复制下面第二段发送给小龙虾。
-
-```text
-我已确认脚本版本正确，并授权在本服务器运行本地脚本。请直接执行：
-
-bash install-xinguang-ai-light.sh
-```
-
-如果小龙虾仍然询问是否确认运行，请回复：确认运行。
