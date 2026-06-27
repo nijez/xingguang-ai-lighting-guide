@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.13"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.14"
 XINGUANG_SKILL_VERSION="3.0.1"
 SKILL_NAME="wainfort-ai-lighting-run"
 SKILL_COMPANY="深圳市馨光智能物联有限公司"
@@ -894,7 +894,7 @@ query_devices() {
     state_mark DEVICE_QUERY_DONE
     local devices_empty=0
     if have python3; then
-      if python3 -c “
+      if python3 -c "
 import json, sys
 try:
     data = json.load(open('$DEVICE_CACHE', encoding='utf-8'))
@@ -903,7 +903,7 @@ try:
         sys.exit(1)
 except Exception:
     sys.exit(1)
-“ 2>/dev/null; then
+" 2>/dev/null; then
         state_mark DEVICE_LIST_READY
         summarize_device_list || true
       else
@@ -914,7 +914,7 @@ except Exception:
       state_mark DEVICE_LIST_READY
     fi
     state_mark DEVICE_DISCOVERY_DONE
-    if [[ “$devices_empty” == 1 ]]; then
+    if [[ "$devices_empty" == 1 ]]; then
       printf '\n灯光服务已就绪，当前家庭暂未读取到设备，不影响 Skill 安装。\n'
     else
       printf '\n已读取当前米家家庭下的设备列表。\n'
@@ -923,7 +923,7 @@ except Exception:
   fi
 
   state_mark DEVICE_QUERY_FAILED
-  log “WARNING: 设备列表查询失败，继续后续流程”
+  log "WARNING: 设备列表查询失败，继续后续流程"
   printf '\n设备列表暂时无法读取，不影响 Skill 安装，可稍后再确认。\n'
 }
 
