@@ -929,7 +929,7 @@ except Exception:
 
 check_first_stage_ready() {
   have openclaw || die "请先完成第一阶段安装，再继续安装馨光 Skill。"
-  have miloco-cli || die "请先完成第一阶段安装，并确认小龙虾相关命令可用。"
+  have miloco-cli || die "请先完成第一阶段安装，并确认龙虾相关命令可用。"
   state_mark FIRST_STAGE_READY
 }
 

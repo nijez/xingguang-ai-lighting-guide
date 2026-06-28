@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.28"
+SCRIPT_VERSION="2026-06-25.29"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -223,10 +223,10 @@ terminal_marker_fields() {
       printf '6|deps|正在准备必要依赖|7\n'
       ;;
     STEP_2_STARTED)
-      printf '8|openclaw_install|正在安装小龙虾|21\n'
+      printf '8|openclaw_install|正在升级龙虾|21\n'
       ;;
     STEP_2_DONE)
-      printf '22|openclaw_done|正在配置小龙虾|23\n'
+      printf '22|openclaw_done|正在配置龙虾|23\n'
       ;;
     STEP_3_STARTED)
       printf '24|connector|正在安装灯光插件|25\n'
@@ -244,10 +244,10 @@ terminal_marker_fields() {
       printf '32|installer|正在预置馨光 Skill 安装器|33\n'
       ;;
     STEP_5_DONE|GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
-      printf '34|gateway_recover|正在启动小龙虾服务|90\n'
+      printf '34|gateway_recover|正在启动龙虾服务|90\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE)
-      printf '46|gateway_recover|正在启动小龙虾服务|90\n'
+      printf '46|gateway_recover|正在启动龙虾服务|90\n'
       ;;
     STEP_6_STARTED)
       printf '53|verify|正在验证安装结果|99\n'
@@ -272,7 +272,7 @@ terminal_progress_message_for_marker() {
 
   case "$phase" in
     complete)
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到小龙虾，发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
       ;;
     error)
       printf '安装未完成，请联系工作人员处理。\n'
@@ -328,8 +328,8 @@ progress_message_for_marker() {
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
       cat <<'EOF'
-小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-如果刷新后没有看到进度，请复制状态查询指令发给小龙虾。
+龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
+如果刷新后没有看到进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
       ;;
@@ -337,7 +337,7 @@ EOF
       printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
     GATEWAY_SERVICE_REPAIR_STARTED)
-      printf '小龙虾后台服务正在恢复，请稍候...\n'
+      printf '龙虾后台服务正在恢复，请稍候...\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
       printf '当前进度：\n4/4 基础环境安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
@@ -365,20 +365,20 @@ status_complete_message() {
 4/4 基础环境安装完成
 
 下一步：
-请回到小龙虾，发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」
+请回到龙虾，发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」
 EOF
 }
 
 status_restart_message() {
   if [[ "${RUN_CONTEXT:-}" == agentchat* ]]; then
     cat <<'EOF'
-小龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
-如果刷新后没有看到进度，请复制状态查询指令发给小龙虾。
+龙虾后台服务正在重启，请等待 1–3 分钟后刷新页面。
+如果刷新后没有看到进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
   else
     cat <<'EOF'
-小龙虾后台服务正在重启，安装仍在继续。
+龙虾后台服务正在重启，安装仍在继续。
 请稍等 1–3 分钟后重新运行：
 
 bash install-xinguang-ai-light.sh status
@@ -399,7 +399,7 @@ terminal_status_report() {
 [100%] 基础环境安装完成。
 
 下一步：
-请回到小龙虾，发送「绑定米家账号」。
+请回到龙虾，发送「绑定米家账号」。
 EOF
       ;;
     error)
@@ -457,7 +457,7 @@ terminal_emit_progress() {
       TERMINAL_CURRENT_PHASE="complete"
       TERMINAL_CURRENT_LABEL="基础环境安装完成"
       TERMINAL_CURRENT_PHASE_MAX=100
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到小龙虾，发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
     fi
     return 0
   fi
@@ -665,14 +665,14 @@ observe_background_progress() {
     cat <<EOF
 
 当前安装未完成，请稍后查询进度。
-如果超过 2 分钟没有新进度，请复制状态查询指令发给小龙虾。
+如果超过 2 分钟没有新进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
   else
     cat <<EOF
 
 安装未完成，请联系工作人员处理。
-如果超过 2 分钟没有新进度，请复制状态查询指令发给小龙虾。
+如果超过 2 分钟没有新进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
   fi
@@ -1002,7 +1002,7 @@ configure_openclaw_gateway() {
 
   if [[ "$gateway_ok" != 1 ]]; then
     state_mark OPENCLAW_GATEWAY_RECOVERY_FAILED
-    die "小龙虾后台服务暂未恢复"
+    die "龙虾后台服务暂未恢复"
   fi
 
   report_openclaw_versions || true
@@ -1473,7 +1473,7 @@ repair_openclaw_gateway_execstart_if_needed() {
   [[ "$exec_line" == "$new_line" ]] && return 0
 
   state_mark GATEWAY_SERVICE_REPAIR_STARTED
-  log "小龙虾后台服务正在恢复，请稍候..."
+  log "龙虾后台服务正在恢复，请稍候..."
 
   tmp="$WORK_DIR/openclaw-gateway.service"
   awk -v new_line="$new_line" '
@@ -1520,7 +1520,7 @@ ensure_openclaw_gateway_service_running() {
 
   if ! openclaw_gateway_service_active_running "$unit"; then
     state_mark GATEWAY_SERVICE_REPAIR_STARTED
-    log "小龙虾后台服务正在恢复，请稍候..."
+    log "龙虾后台服务正在恢复，请稍候..."
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
     systemctl --user restart "$unit" >/dev/null 2>&1 ||
@@ -1717,14 +1717,14 @@ verify_install() {
   setup_runtime_paths
   printf '脚本版本: %s\n' "$SCRIPT_VERSION"
   if have openclaw; then
-    printf '小龙虾环境: 已安装\n'
+    printf '龙虾环境: 已安装\n'
     if ! ensure_openclaw_gateway_service_running; then
       state_mark OPENCLAW_GATEWAY_RECOVERY_FAILED
-      die "小龙虾后台服务暂未恢复"
+      die "龙虾后台服务暂未恢复"
     fi
   else
-    printf '小龙虾环境: 未确认\n'
-    die "小龙虾环境暂未确认"
+    printf '龙虾环境: 未确认\n'
+    die "龙虾环境暂未确认"
   fi
   if have miloco-cli; then
     local service_status_file="$WORK_DIR/light-service-status.json"
@@ -1803,7 +1803,7 @@ show_main_menu() {
 
 请选择操作:
   1) 一键傻瓜式部署
-     依赖检查 -> 小龙虾环境检查 -> 灯光插件 -> 平台/米家绑定提示
+     依赖检查 -> 龙虾环境检查 -> 灯光插件 -> 平台/米家绑定提示
 
   2) 功能模块维护
      只维护某一个模块，不从头到尾重复部署
@@ -2202,7 +2202,7 @@ write_xinguang_workspace_rules() {
 禁止：搜索 ClawHub、询问 Skill 来源、新建 Skill、推荐普通米家灯控。
 USERMD
 
-  log "馨光对话规则已写入小龙虾工作区"
+  log "馨光对话规则已写入龙虾工作区"
 }
 
 prepare_xinguang_skill_installer() {
@@ -2358,7 +2358,7 @@ run_full_deploy() {
   else
     step_start="$(date +%s)"
     step_start_msg 6 "灯光服务验证和下一步引导"
-    print_step_note "检查灯光服务、小龙虾后台服务和灯光插件状态。"
+    print_step_note "检查灯光服务、龙虾后台服务和灯光插件状态。"
     restart_openclaw_gateway_best_effort
     verify_install
     log "Done"
