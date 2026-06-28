@@ -36,6 +36,8 @@
       padding: 32px 22px;
       background: #fff;
       border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
     }
     aside h2 { margin: 0 0 22px; font-size: 20px; }
     nav { display: grid; gap: 8px; }
@@ -207,6 +209,44 @@
       font-size: 14px;
     }
 
+    /* 水印 */
+    #watermark {
+      position: fixed;
+      inset: 0;
+      z-index: 998;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    #watermark canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    /* 侧边栏登录信息 */
+    #auth-info {
+      margin-top: auto;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      display: none;
+    }
+    #auth-info .auth-user {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      word-break: break-all;
+    }
+    #auth-info .auth-user strong { color: var(--text); display: block; font-size: 14px; }
+    #logout-btn {
+      width: 100%;
+      padding: 9px 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    #logout-btn:hover { background: #fff0f0; color: var(--red); border-color: #ffd7c2; }
+
     .screenshot {
       width: 100%;
       max-width: 680px;
@@ -232,6 +272,9 @@
   </style>
 </head>
 <body>
+  <!-- 水印层 -->
+  <div id="watermark"><canvas id="wm-canvas"></canvas></div>
+
   <!-- 登录蒙层 -->
   <div id="auth-overlay">
     <div id="auth-card">
@@ -262,6 +305,10 @@
         <a href="#fallback">备用方式</a>
         <a href="#faq">常见问题</a>
       </nav>
+      <div id="auth-info">
+        <div class="auth-user">已登录<strong id="display-username"></strong></div>
+        <button id="logout-btn" type="button">退出登录</button>
+      </div>
     </aside>
 
     <main>
@@ -462,6 +509,64 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
       document.getElementById('auth-overlay').classList.add('hidden');
     }
 
+    document.getElementById('auth-submit').addEventListener('click', doLogin);
+    document.getElementById('auth-password').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doLogin();
+    });
+    document.getElementById('auth-username').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('auth-password').focus();
+    });
+
+    // 水印
+    function drawWatermark(username) {
+      const canvas = document.getElementById('wm-canvas');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const text = username;
+      const gap = 220;
+      const fontSize = 15;
+      ctx.save();
+      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
+      ctx.fillStyle = 'rgba(100, 120, 160, 0.10)';
+      ctx.rotate(-25 * Math.PI / 180);
+      const diagLen = Math.sqrt(window.innerWidth ** 2 + window.innerHeight ** 2);
+      for (let x = -diagLen; x < diagLen * 2; x += gap) {
+        for (let y = -diagLen; y < diagLen * 2; y += gap) {
+          ctx.fillText(text, x, y);
+        }
+      }
+      ctx.restore();
+    }
+
+    function showAuthInfo(username) {
+      document.getElementById('display-username').textContent = username;
+      document.getElementById('auth-info').style.display = 'block';
+      document.getElementById('watermark').style.display = 'block';
+      drawWatermark(username);
+    }
+
+    window.addEventListener('resize', function() {
+      const u = sessionStorage.getItem('xinguang_auth');
+      if (u) drawWatermark(u);
+    });
+
+    // 退出
+    document.getElementById('logout-btn').addEventListener('click', function() {
+      sessionStorage.removeItem('xinguang_auth');
+      location.reload();
+    });
+
+    // 检查会话
+    const savedUser = sessionStorage.getItem('xinguang_auth');
+    if (savedUser) {
+      hideOverlay();
+      showAuthInfo(savedUser);
+    }
+
     async function doLogin() {
       const username = document.getElementById('auth-username').value.trim();
       const password = document.getElementById('auth-password').value;
@@ -472,24 +577,12 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
         sessionStorage.setItem('xinguang_auth', username);
         err.style.display = 'none';
         hideOverlay();
+        showAuthInfo(username);
       } else {
         err.style.display = 'block';
         err.textContent = '账号或密码错误';
         document.getElementById('auth-password').value = '';
       }
-    }
-
-    document.getElementById('auth-submit').addEventListener('click', doLogin);
-    document.getElementById('auth-password').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') doLogin();
-    });
-    document.getElementById('auth-username').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') document.getElementById('auth-password').focus();
-    });
-
-    // 检查会话
-    if (sessionStorage.getItem('xinguang_auth')) {
-      hideOverlay();
     }
   </script>
 </body>
