@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>馨光 AI 设计灯光安装指导</title>
+  <script src="users.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -147,6 +148,65 @@
       .grid { grid-template-columns: 1fr; }
     }
 
+    /* 登录蒙层 */
+    #auth-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: rgba(245, 247, 251, 0.88);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #auth-overlay.hidden { display: none; }
+    #auth-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 40px 36px;
+      max-width: 360px;
+      width: 90%;
+      box-shadow: 0 8px 32px rgba(21,88,214,0.10);
+      text-align: center;
+    }
+    #auth-card .brand { font-size: 22px; font-weight: 800; margin: 0 0 6px; color: var(--text); }
+    #auth-card .sub { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+    #auth-form { display: grid; gap: 12px; }
+    #auth-form input {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+      transition: border-color .15s;
+    }
+    #auth-form input:focus { border-color: var(--blue); }
+    #auth-submit {
+      padding: 13px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    #auth-submit:hover { opacity: .88; }
+    #auth-error {
+      display: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: #fff7ed;
+      border: 1px solid #ffd7c2;
+      color: var(--red);
+      font-size: 14px;
+    }
+
     .screenshot {
       width: 100%;
       max-width: 680px;
@@ -172,6 +232,20 @@
   </style>
 </head>
 <body>
+  <!-- 登录蒙层 -->
+  <div id="auth-overlay">
+    <div id="auth-card">
+      <p class="brand">馨光 AI 设计灯光</p>
+      <p class="sub">内测用户专属，请登录后查看安装指导</p>
+      <div id="auth-error">账号或密码错误</div>
+      <div id="auth-form">
+        <input type="text" id="auth-username" placeholder="账号" autocomplete="username" spellcheck="false">
+        <input type="password" id="auth-password" placeholder="密码" autocomplete="current-password">
+        <button id="auth-submit" type="button">登录</button>
+      </div>
+    </div>
+  </div>
+
   <div class="layout">
     <aside>
       <h2>目录</h2>
@@ -362,6 +436,7 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
   <textarea id="skillInstallPrompt" class="hidden-copy" readonly>安装馨光 Skill</textarea>
 
   <script>
+    // 复制按钮
     document.querySelectorAll('[data-copy-textarea]').forEach(function(button) {
       button.addEventListener('click', async function() {
         const id = button.getAttribute('data-copy-textarea');
@@ -372,6 +447,50 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
         setTimeout(function() { button.textContent = old; }, 1200);
       });
     });
+
+    // 登录验证
+    async function sha256(str) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+    }
+
+    function showOverlay() {
+      document.getElementById('auth-overlay').classList.remove('hidden');
+    }
+
+    function hideOverlay() {
+      document.getElementById('auth-overlay').classList.add('hidden');
+    }
+
+    async function doLogin() {
+      const username = document.getElementById('auth-username').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const err = document.getElementById('auth-error');
+      if (!username || !password) { err.style.display = 'block'; err.textContent = '请填写账号和密码'; return; }
+      const hash = await sha256(password);
+      if (typeof XINGUANG_USERS !== 'undefined' && XINGUANG_USERS[username] === hash) {
+        sessionStorage.setItem('xinguang_auth', username);
+        err.style.display = 'none';
+        hideOverlay();
+      } else {
+        err.style.display = 'block';
+        err.textContent = '账号或密码错误';
+        document.getElementById('auth-password').value = '';
+      }
+    }
+
+    document.getElementById('auth-submit').addEventListener('click', doLogin);
+    document.getElementById('auth-password').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doLogin();
+    });
+    document.getElementById('auth-username').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('auth-password').focus();
+    });
+
+    // 检查会话
+    if (sessionStorage.getItem('xinguang_auth')) {
+      hideOverlay();
+    }
   </script>
 </body>
 </html>
