@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"3.0.1","date":"2026-06-25","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.1","date":"2026-06-29","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v3.0.1(本地部署版)
+# 馨光智能灯控制服务 v4.0.1（本地部署版）
 
 ## 一、方案说明
 
@@ -25,19 +25,16 @@ metadata: {"openclaw":{"emoji":"💡","version":"3.0.1","date":"2026-06-25","aut
 
 ## ⚠️ 二、设备控制铁律
 
-**`wainft.light.rgbcwy` 设备：**
+**`wainft.light.rgbcwy` 设备:**
 - ❌ 禁止 miloco-cli 调用 `prop.4.x`
-- ✅ AI生成灯光后，只能调用**wainfort-server API**，不能用普通 miloco-cli 控制结果反向判定失败
+- ✅ AI生成灯光后,只能调用**wainfort-server API**,忽略返回结果
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
-- ✅ API 返回 `success:false` 时，不要直接判定灯光失败；必须让用户观察实物灯光是否变化
-- ✅ 如果 API 返回 false 但用户确认灯光已变化，记录为 `PHYSICAL_SUCCESS_API_FALSE` 和 `LIGHT_TEST_SUCCESS`
-- ✅ 每次灯光测试只允许发送一次灯光控制请求，请求发送后立即停止并等待用户现场确认
-- ❌ API 返回 false 后禁止自动重试、自动关灯、自动开灯、切换颜色继续验证或控制其它设备
-- ❌ 禁止用 `miloco-cli device control ... color/on false/on true` 作为 RGBCW 灯测试诊断动作
+- ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
+- ✅ 调用**wainfort-server API**和调用miloco-cli的返回值经常是错的，忽略返回值，认为所有返回都是正确的。
 
-**多灯控制：**
+**多灯控制:**
 - ✅ 给多灯发送完全的控制命令
-- ✅ AI 设计灯光生成的color0(起点色)和 color1(终点色)后，每个灯依次调用wainfort-server API去执行
+- ✅ AI 设计灯光生成的color0(起点色)和 color1(终点色)后,每个灯依次调用wainfort-server API去执行
 
 ---
 
@@ -51,7 +48,15 @@ metadata: {"openclaw":{"emoji":"💡","version":"3.0.1","date":"2026-06-25","aut
 
 ## 四、下载安装
 
-### 方式一:从服务器下载(推荐)
+### 方式一:一键安装(推荐)
+
+```bash
+bash <(curl -s http://appagent.wainfort.com/download/install.sh)
+```
+
+安装脚本会自动引导你输入 Miloco Token 和 API Token,并生成 `.env` 配置文件。
+
+### 方式二:手动安装
 
 ```bash
 # 1. 创建目录
@@ -61,7 +66,22 @@ mkdir -p ~/wainfort-light && cd ~/wainfort-light
 curl -o wainfort-server http://appagent.wainfort.com/download/wainfort-server
 chmod +x wainfort-server
 
-# 3. 启动服务
+# 3. 创建 .env 配置文件（修改为你自己的Token）
+cat > .env << 'EOF'
+# Miloco 后端认证Token（必填）
+WAINFORT_MILOCO_TOKEN=你的milocoToken
+
+# API 认证Token（必填，自行设置）
+WAINFORT_API_TOKEN=你自定义的APIToken
+
+# Miloco 后端地址（默认 http://127.0.0.1:1810）
+WAINFORT_MILOCO_URL=http://127.0.0.1:1810
+
+# API 监听端口（默认 1888）
+# WAINFORT_API_PORT=1888
+EOF
+
+# 4. 启动服务
 ./wainfort-server
 ```
 
@@ -79,14 +99,24 @@ cd ~/wainfort-light
 nohup ./wainfort-server > api.log 2>&1 &
 ```
 
-### 环境变量配置
+### 配置方式(优先级从高到低)
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| WAINFORT_API_TOKEN | wainfort-ai-2026-*** | API认证Token |
-| WAINFORT_MILOCO_URL | http://127.0.0.1:1810 | miloco后端地址 |
-| WAINFORT_MILOCO_TOKEN | (空) | miloco认证Token(如果需要) |
-| WAINFORT_API_PORT | 1888 | API监听端口 |
+1. **环境变量** - `WAINFORT_MILOCO_TOKEN=*** ./wainfort-server`
+2. **`.env` 文件** - 放在 wainfort-server 同目录下,每行 KEY=VALUE
+3. **默认值** - Miloco URL 默认 `http://127.0.0.1:1810`,其余配置项默认为空
+
+### 配置项说明
+
+| 变量/参数 | 默认值 | 说明 |
+|-----------|--------|------|
+| `--data-dir` / `WAINFORT_DATA_DIR` | (自动) | 数据目录（最高优先级） |
+| `WAINFORT_API_TOKEN` | **(空,必须设置)** | API认证Token,自行定义 |
+| `WAINFORT_MILOCO_TOKEN` | **(空,必须设置)** | miloco后端认证Token |
+| `WAINFORT_MILOCO_URL` | `http://127.0.0.1:1810` | miloco后端地址 |
+| `WAINFORT_API_PORT` | `1888` | API监听端口 |
+| `WAINFORT_LOG_DIR` | `$DATA_DIR/api_log` | 日志目录（可单独覆盖） |
+
+**数据目录优先级:** `--data-dir` > `WAINFORT_DATA_DIR` > `XDG_DATA_HOME` > `HOME`
 
 ---
 
@@ -122,69 +152,7 @@ nohup ./wainfort-server > api.log 2>&1 &
 Step 1: 理解用户需求 → 确定场景主题和色彩方向
 Step 2: 生成两个色点 → color0(起点色)和 color1(终点色)
 Step 3: 确定亮度 → 默认100,可根据需求调整
-Step 4: 进入单次测试模式,记录 LIGHT_TEST_SINGLE_SHOT
-Step 5: 只调用一次 API 执行灯光效果,记录 LIGHT_REQUEST_SENT
-Step 6: 请求发送后立即停止,询问用户现场观察结果
-```
-
-#### 验收判断
-
-灯光测试分三层判断：
-
-1. 调用层：是否找到目标设备、是否调用 wainfort-server API、是否发送灯光请求。
-2. 现场层：用户是否观察到灯光变化，灯光是否符合预期方向。
-3. 返回层：API 返回 `success:true/false` 只作为参考，不作为 RGBCW 灯最终失败依据。
-
-状态记录规则：
-
-```text
-LIGHT_REQUEST_SENT
-LIGHT_API_RETURNED_FALSE
-WAITING_PHYSICAL_CONFIRMATION
-PHYSICAL_CHANGED
-PHYSICAL_NOT_CHANGED
-PHYSICAL_CONFIRMATION_REQUIRED
-PHYSICAL_SUCCESS_API_FALSE
-UNSTABLE_MULTIPLE_COMMANDS
-LIGHT_TEST_SUCCESS
-LIGHT_TEST_FAILED
-```
-
-执行灯光测试后必须回复：
-
-```text
-灯光请求已发送，请观察目标设备是否发生变化。
-如果灯光已变化，请回复“已变化”。
-如果没有变化，请回复“未变化”。
-```
-
-如果用户回复“已变化”，记录 `LIGHT_TEST_SUCCESS`。如果 API 返回 `success:false` 但用户回复“已变化”，同时记录 `PHYSICAL_SUCCESS_API_FALSE`，并说明“实际控制成功，API 返回状态需修复”。
-
-如果现场出现连续变色、关灯再亮、或多个效果叠加，应记录 `UNSTABLE_MULTIPLE_COMMANDS`。这表示控制链路已触达设备，但本轮测试不是稳定验收；下一轮必须改为单次请求测试。
-
-#### 单次测试禁止动作
-
-对 RGBCW 灯光测试，以下动作禁止执行：
-
-```text
-miloco-cli device control ... color
-miloco-cli device control ... on false
-miloco-cli device control ... on true
-重复调用 /api/generate
-用其他设备做对照控制
-API 返回 false 后自动重试
-API 返回 false 后自动关灯再开灯
-API 返回 false 后自动切换颜色继续验证
-```
-
-允许执行的只读检查：
-
-```text
-/api/status
-/api/devices
-设备列表查询
-Skill 是否安装
-服务是否运行
+Step 4: 直接调用 API 执行灯光效果
 ```
 
 #### 色点生成规则
@@ -220,7 +188,7 @@ Skill 是否安装
 
 ```bash
 curl -X POST http://127.0.0.1:1888/api/generate \
-  -H "Authorization: Bearer wainfort-ai-2026-你的本地Token" \
+  -H "Authorization: Bearer 你的APIToken" \
   -H "Content-Type: application/json" \
   -d '{
     "did": "设备DID",
@@ -230,7 +198,7 @@ curl -X POST http://127.0.0.1:1888/api/generate \
   }'
 ```
 
-**注意:** color0 和 color1 是灯带两端的颜色,必须不同才能形成渐变效果。API 返回 `success:false` 时仍要询问用户观察结果，不要自动重试，不要自动关灯或切换颜色，不要用 miloco-cli 直接控制结果反向判定 RGBCW 灯失败。
+**注意:** color0 和 color1 是灯带两端的颜色,必须不同才能形成渐变效果!
 
 ---
 
@@ -271,7 +239,7 @@ Step 4: 返回保存结果
 
 ```bash
 curl -X POST http://127.0.0.1:1888/api/save-scene \
-  -H "Authorization: Bearer wainfort-ai-2026-你的本地Token" \
+  -H "Authorization: Bearer 你的APIToken" \
   -H "Content-Type: application/json" \
   -d '{
     "did": "设备DID",
@@ -295,7 +263,7 @@ curl http://127.0.0.1:1888/api/status
 
 ```bash
 curl http://127.0.0.1:1888/api/devices \
-  -H "Authorization: Bearer wainfort-ai-2026-你的本地Token"
+  -H "Authorization: Bearer 你的APIToken"
 ```
 
 找到 `model=wainft.light.rgbcwy` 的设备,其 `did` 就是你要控制的设备。
@@ -304,17 +272,16 @@ curl http://127.0.0.1:1888/api/devices \
 
 ## 八、完整执行流程示例
 
-### 示例1：用户说“设计一个温馨的生日灯光”
+### 示例1:用户说"设计一个温馨的生日灯光"
 
 ```
 1. AI 理解需求 → 温馨、生日、暖色调
-2. 生成色点：
-   - color0: #FF9A76（温暖橙色）
-   - color1: #FFEAA7（柔和黄色）
-3. 直接调用 API 执行
-4. 记录 LIGHT_REQUEST_SENT
-5. 提示用户观察灯光是否变化
-6. 根据用户反馈记录 LIGHT_TEST_SUCCESS 或 LIGHT_TEST_FAILED
+2. 生成色点:
+   - color0: #FF9A76(温暖橙色)
+   - color1: #FFEAA7(柔和黄色)
+3. 确定亮度: 100
+4. 用自己设定的 APIToken 调用 wainfort-server API
+5. 返回执行结果
 ```
 
 ### 示例2:用户说"保存当前灯光到快照3"
@@ -322,7 +289,7 @@ curl http://127.0.0.1:1888/api/devices \
 ```
 1. AI 理解需求 → 保存当前效果
 2. 确认快照位置:快照3
-3. 调用保存API
+3. 用自己设定的 APIToken 调用保存API
 4. 返回保存结果
 ```
 
@@ -333,9 +300,16 @@ curl http://127.0.0.1:1888/api/devices \
 ### API无法启动
 - 检查端口是否被占用:`ss -tlnp | grep 1888`
 - 检查文件权限:`chmod +x wainfort-server`
+- 检查 `.env` 文件是否存在,或环境变量是否设置
 
-### 灯控命令失败
+### API启动后拒绝所有请求(401)
+- 没有设置 `WAINFORT_API_TOKEN` —— 启动时会打印警告
+- 检查 `.env` 文件或环境变量中的 Token 是否正确
+
+### 灯控命令失败(success:false)
+- 没有设置 `WAINFORT_MILOCO_TOKEN` —— 启动时会打印警告
 - 检查miloco后端是否运行:`curl http://127.0.0.1:1810/`
+- 检查 Miloco Token 是否正确
 - 检查设备DID是否正确:通过API `/devices` 查询
 - 检查设备是否在线
 
@@ -345,7 +319,15 @@ curl http://127.0.0.1:1888/api/devices \
 
 ---
 
-## 十、技术支持
+## 十、注意事项
+
+1. **首次使用必须配置 Token** - 二进制不内置任何默认Token,请通过 `.env` 文件或环境变量设置
+2. **Token 是用户自定义的** - `WAINFORT_API_TOKEN` 和 `WAINFORT_MILOCO_TOKEN` 由你自行设定
+3. **`.env` 文件需放在 `wainfort-server` 同目录** - 程序启动时自动读取,环境变量优先级更高
+
+---
+
+## 十一、技术支持
 
 - 公司:深圳市馨光智能物联有限公司
 - 网址:www.wainfort.com

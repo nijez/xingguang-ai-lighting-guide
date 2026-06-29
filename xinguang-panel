@@ -1,0 +1,343 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+XINGUANG_PANEL_VERSION="2026-06-29.2"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
+ENV_PRIMARY="/etc/xinguang-wainfort.env"
+ENV_FALLBACK="$INSTALL_DIR/.env"
+TARGET_HOME_FILE="$BASE_DIR/target-home.env"
+SKILL_NAME="wainfort-ai-lighting-run"
+
+if [[ -t 1 ]]; then
+  RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BLUE=$'\033[34m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
+else
+  RED=""; GREEN=""; YELLOW=""; BLUE=""; BOLD=""; RESET=""
+fi
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+pause() {
+  printf '\n按回车返回菜单...'
+  IFS= read -r _ || true
+}
+
+confirm() {
+  local prompt="$1" answer
+  printf '%s [y/N] ' "$prompt"
+  IFS= read -r answer || return 1
+  case "$answer" in
+    y|Y|yes|YES|Yes|是) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+redact() {
+  sed -E \
+    -e 's/(Bearer )[A-Za-z0-9._~+\/=-]+/\1***REDACTED***/g' \
+    -e 's/(token["'"'"']?[=: ]+)[A-Za-z0-9._~+\/=-]+/\1***REDACTED***/Ig' \
+    -e 's/(WAINFORT_[A-Z_]*TOKEN=).*/\1***REDACTED***/g' \
+    -e 's/(api_key["'"'"']?[=: ]+)[A-Za-z0-9._~-]+/\1***REDACTED***/Ig'
+}
+
+run_doctor() {
+  if have xinguang-doctor; then
+    xinguang-doctor
+  elif [[ -x "$BASE_DIR/xinguang-doctor" ]]; then
+    "$BASE_DIR/xinguang-doctor"
+  else
+    printf '未找到 xinguang-doctor。\n'
+    return 1
+  fi
+}
+
+show_header() {
+  clear 2>/dev/null || true
+  cat <<EOF
+╔══════════════════════════════════════╗
+║      馨光 AI 设计灯光 · 维护面板      ║
+╚══════════════════════════════════════╝
+版本：$XINGUANG_PANEL_VERSION
+
+EOF
+}
+
+show_menu() {
+  cat <<'EOF'
+1. 查看总体状态
+2. 运行完整 Doctor
+3. 查看版本信息
+4. 查看 OpenClaw gateway 状态
+5. 修复 OpenClaw gateway service
+6. 查看米家绑定状态
+7. 设置目标家庭
+8. 同步 Miloco token 到灯光服务
+9. 启动 / 重启灯光服务
+10. 查看灯光服务状态
+11. 查询设备列表
+12. 执行本地测试场景
+13. 查看 Skill 安装状态
+14. 重新安装馨光 Skill
+15. 导出脱敏诊断包
+16. 退出
+
+请输入选项：
+EOF
+}
+
+show_summary() {
+  run_doctor | sed -n '/\[分层结论\]/,$p'
+}
+
+show_versions() {
+  printf '[版本文件]\n'
+  if [[ -f "$BASE_DIR/VERSION.json" ]]; then
+    cat "$BASE_DIR/VERSION.json"
+  elif [[ -f "./VERSION.json" ]]; then
+    cat "./VERSION.json"
+  else
+    printf '未找到 VERSION.json。\n'
+  fi
+  printf '\n[本地脚本]\n'
+  for f in "$BASE_DIR"/install-xinguang-ai-light.sh "$BASE_DIR"/install-miloco-openclaw-cloud.sh "$BASE_DIR"/install-xinguang-ai-skill.sh "$BASE_DIR"/install-xinguang-skill.sh; do
+    [[ -f "$f" ]] || continue
+    printf '%s\n' "$f"
+    grep -E 'ENTRY_VERSION=|SCRIPT_VERSION=|XINGUANG_SKILL_INSTALLER_VERSION=|XINGUANG_SKILL_VERSION=' "$f" || true
+  done
+}
+
+show_gateway() {
+  if have openclaw; then
+    openclaw gateway status --deep 2>/dev/null || openclaw gateway status 2>/dev/null || true
+  else
+    printf '未找到 openclaw 命令。\n'
+  fi
+  printf '\n[服务]\n'
+  systemctl --user status openclaw-gateway.service --no-pager -l 2>/dev/null | redact || true
+}
+
+repair_gateway() {
+  confirm "将修复 OpenClaw gateway service 的启动路径，是否继续？" || { printf '已取消。\n'; return 0; }
+  local openclaw_bin service_file port current_port
+  openclaw_bin="$(command -v openclaw 2>/dev/null || true)"
+  [[ -n "$openclaw_bin" ]] || { printf '未找到 openclaw 命令。\n'; return 1; }
+  service_file="$HOME/.config/systemd/user/openclaw-gateway.service"
+  mkdir -p "$(dirname "$service_file")"
+  current_port="$(grep -Eo 'gateway --port [0-9]+' "$service_file" 2>/dev/null | awk '{print $3}' | tail -n 1 || true)"
+  current_port="${current_port:-33830}"
+  if [[ -f "$service_file" ]]; then
+    cp "$service_file" "$service_file.bak.$(date +%Y%m%d%H%M%S)"
+    python3 - "$service_file" "$openclaw_bin" "$current_port" <<'PY'
+import sys, re, pathlib
+path=pathlib.Path(sys.argv[1])
+bin_path=sys.argv[2]
+port=sys.argv[3]
+text=path.read_text(encoding="utf-8")
+text=re.sub(r'^ExecStart=.*$', f'ExecStart={bin_path} gateway --port {port}', text, flags=re.M)
+path.write_text(text, encoding="utf-8")
+PY
+  else
+    cat >"$service_file" <<EOF
+[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$openclaw_bin gateway --port $current_port
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+  fi
+  systemctl --user daemon-reload
+  systemctl --user reset-failed openclaw-gateway.service 2>/dev/null || true
+  systemctl --user restart openclaw-gateway.service
+  sleep 3
+  if systemctl --user is-active --quiet openclaw-gateway.service; then
+    printf 'OpenClaw gateway 已恢复。\n'
+  else
+    printf 'OpenClaw gateway 仍未恢复，请运行 Doctor 查看详情。\n'
+    return 1
+  fi
+}
+
+show_mijia() {
+  printf '[家庭配置]\n'
+  [[ -f "$TARGET_HOME_FILE" ]] && sed -E 's/(TOKEN=).*/\1***REDACTED***/' "$TARGET_HOME_FILE" || printf '未设置目标家庭。\n'
+  printf '\n[家庭列表]\n'
+  if have miloco-cli; then
+    miloco-cli scope home list 2>/dev/null | redact || printf '家庭列表读取失败。\n'
+  else
+    printf '未找到 miloco-cli。\n'
+  fi
+}
+
+set_target_home() {
+  printf '请输入目标家庭名称：'
+  local home
+  IFS= read -r home || return 1
+  [[ -n "$home" ]] || { printf '家庭名称不能为空。\n'; return 1; }
+  mkdir -p "$BASE_DIR"
+  {
+    printf 'XINGUANG_TARGET_HOME=%q\n' "$home"
+    printf 'XINGUANG_TARGET_HOME_ID=%q\n' ""
+  } >"$TARGET_HOME_FILE"
+  chmod 600 "$TARGET_HOME_FILE" 2>/dev/null || true
+  printf '目标家庭已保存：%s\n' "$home"
+}
+
+miloco_token() {
+  local cfg="$HOME/.openclaw/miloco/config.json"
+  [[ -f "$cfg" ]] || return 1
+  python3 - "$cfg" <<'PY' 2>/dev/null
+import json, sys
+data=json.load(open(sys.argv[1], encoding="utf-8"))
+print((data.get("server") or {}).get("token") or data.get("token") or "")
+PY
+}
+
+sync_token() {
+  confirm "将同步米家授权信息到灯光服务，是否继续？" || { printf '已取消。\n'; return 0; }
+  local token env
+  token="$(miloco_token || true)"
+  [[ -n "$token" ]] || { printf '未读取到米家授权信息。\n'; return 1; }
+  env="$ENV_PRIMARY"
+  if [[ -f "$env" ]]; then
+    sudo cp "$env" "$env.bak.$(date +%Y%m%d%H%M%S)"
+    if sudo grep -q '^WAINFORT_MILOCO_TOKEN=' "$env"; then
+      printf '%s\n' "$token" | sudo awk -v value="$token" 'BEGIN{done=0} /^WAINFORT_MILOCO_TOKEN=/{print "WAINFORT_MILOCO_TOKEN=" value; done=1; next} {print} END{if(!done) print "WAINFORT_MILOCO_TOKEN=" value}' "$env" | sudo tee "$env.tmp" >/dev/null
+      sudo mv "$env.tmp" "$env"
+    else
+      printf 'WAINFORT_MILOCO_TOKEN=%s\n' "$token" | sudo tee -a "$env" >/dev/null
+    fi
+    sudo chmod 600 "$env"
+    sudo systemctl restart xinguang-wainfort.service 2>/dev/null || true
+    printf '已同步授权信息。\n'
+  else
+    printf '未找到系统服务配置，请先安装馨光 Skill。\n'
+    return 1
+  fi
+}
+
+restart_service() {
+  confirm "将启动或重启灯光服务，是否继续？" || { printf '已取消。\n'; return 0; }
+  if systemctl list-unit-files 2>/dev/null | grep -q '^xinguang-wainfort.service'; then
+    sudo systemctl restart xinguang-wainfort.service
+  elif [[ -x "$BASE_DIR/install-xinguang-ai-skill.sh" ]]; then
+    bash "$BASE_DIR/install-xinguang-ai-skill.sh"
+  else
+    printf '未找到可用的灯光服务启动方式。\n'
+    return 1
+  fi
+}
+
+show_service() {
+  systemctl status xinguang-wainfort.service --no-pager -l 2>/dev/null | redact || sudo systemctl status xinguang-wainfort.service --no-pager -l 2>/dev/null | redact || true
+  printf '\n[最近日志]\n'
+  if have xinguang-tail-logs; then
+    xinguang-tail-logs 80
+  elif [[ -x "$BASE_DIR/xinguang-tail-logs" ]]; then
+    "$BASE_DIR/xinguang-tail-logs" 80
+  else
+    printf '未找到日志查看命令。\n'
+  fi
+}
+
+list_devices() {
+  if have xinguang-list-devices; then
+    xinguang-list-devices
+  elif [[ -x "$BASE_DIR/xinguang-list-devices" ]]; then
+    "$BASE_DIR/xinguang-list-devices"
+  else
+    printf '未找到设备查询命令。\n'
+  fi
+}
+
+test_scene() {
+  printf '请输入房间（默认：客厅）：'
+  local room scene
+  IFS= read -r room || true
+  room="${room:-客厅}"
+  printf '请输入灯光效果（默认：马尔代夫海边日落）：'
+  IFS= read -r scene || true
+  scene="${scene:-马尔代夫海边日落}"
+  confirm "将发送一次灯光测试请求，是否继续？" || { printf '已取消。\n'; return 0; }
+  if have xinguang-test-scene; then
+    xinguang-test-scene "$room" "$scene"
+  elif [[ -x "$BASE_DIR/xinguang-test-scene" ]]; then
+    "$BASE_DIR/xinguang-test-scene" "$room" "$scene"
+  else
+    printf '未找到测试命令。\n'
+  fi
+}
+
+show_skill() {
+  local base path
+  base="$HOME/.openclaw/skills"
+  if have openclaw; then
+    base="$(openclaw skills path 2>/dev/null | tail -n 1 || printf '%s' "$base")"
+  fi
+  path="$base/$SKILL_NAME/SKILL.md"
+  if [[ -f "$path" ]]; then
+    printf '馨光 Skill 已安装：%s\n' "$path"
+    grep -E '^name:|metadata:' "$path" || true
+  else
+    printf '未找到馨光 Skill。\n'
+  fi
+}
+
+reinstall_skill() {
+  confirm "将重新安装馨光 Skill，是否继续？" || { printf '已取消。\n'; return 0; }
+  if have xinguang-install-skill; then
+    xinguang-install-skill
+  elif [[ -x "$BASE_DIR/install-xinguang-ai-skill.sh" ]]; then
+    bash "$BASE_DIR/install-xinguang-ai-skill.sh"
+  else
+    printf '未找到馨光 Skill 安装器。\n'
+    return 1
+  fi
+}
+
+export_diag() {
+  if have xinguang-export-diagnostics; then
+    xinguang-export-diagnostics
+  elif [[ -x "$BASE_DIR/xinguang-export-diagnostics" ]]; then
+    "$BASE_DIR/xinguang-export-diagnostics"
+  else
+    printf '未找到诊断导出命令。\n'
+  fi
+}
+
+main() {
+  while true; do
+    show_header
+    show_menu
+    local choice
+    IFS= read -r choice || exit 0
+    printf '\n'
+    case "$choice" in
+      1) show_summary; pause ;;
+      2) run_doctor; pause ;;
+      3) show_versions; pause ;;
+      4) show_gateway; pause ;;
+      5) repair_gateway; pause ;;
+      6) show_mijia; pause ;;
+      7) set_target_home; pause ;;
+      8) sync_token; pause ;;
+      9) restart_service; pause ;;
+      10) show_service; pause ;;
+      11) list_devices; pause ;;
+      12) test_scene; pause ;;
+      13) show_skill; pause ;;
+      14) reinstall_skill; pause ;;
+      15) export_diag; pause ;;
+      16) printf '已退出。\n'; exit 0 ;;
+      *) printf '请输入 1-16 之间的选项。\n'; pause ;;
+    esac
+  done
+}
+
+main "$@"

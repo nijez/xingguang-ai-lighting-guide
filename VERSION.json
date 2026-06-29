@@ -1,0 +1,8 @@
+{
+  "base_installer": "2026-06-25.32",
+  "skill_installer": "2026-06-26.15",
+  "skill": "4.0.1",
+  "docs": "2026-06-29",
+  "release_channel": "internal-test",
+  "release_hash": ""
+}

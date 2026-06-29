@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.14"
-XINGUANG_SKILL_VERSION="3.0.1"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.15"
+XINGUANG_SKILL_VERSION="4.0.1"
 SKILL_NAME="wainfort-ai-lighting-run"
 SKILL_COMPANY="深圳市馨光智能物联有限公司"
 
@@ -95,6 +95,16 @@ load_env_if_present() {
   SERVER_DEBUG_LOG="$WAINFORT_LOG_DIR/server-debug.log"
 }
 
+read_miloco_token() {
+  local cfg="$HOME/.openclaw/miloco/config.json"
+  [[ -f "$cfg" ]] || return 1
+  python3 - "$cfg" <<'PY' 2>/dev/null || true
+import json,sys
+data=json.load(open(sys.argv[1],encoding="utf-8"))
+print((data.get("server") or {}).get("token") or data.get("token") or "")
+PY
+}
+
 load_target_home_if_present() {
   if [[ -f "$TARGET_HOME_FILE" ]]; then
     set -a
@@ -131,6 +141,9 @@ ensure_env_file() {
   fi
   if [[ -z "$token" ]]; then
     token="$(generate_token)"
+  fi
+  if [[ -z "${WAINFORT_MILOCO_TOKEN:-}" ]]; then
+    WAINFORT_MILOCO_TOKEN="$(read_miloco_token || true)"
   fi
 
   umask 077
@@ -284,6 +297,49 @@ server_status_ok() {
     "http://127.0.0.1:$WAINFORT_API_PORT/api/status" >/dev/null 2>&1
 }
 
+server_devices_check() {
+  local token="${WAINFORT_API_TOKEN:-}"
+  [[ -n "$token" ]] || return 2
+  local tmp code
+  tmp="$(mktemp)"
+  code="$(curl -sS --max-time 15 -o "$tmp" -w '%{http_code}' \
+    -H "Authorization: Bearer $token" \
+    "http://127.0.0.1:$WAINFORT_API_PORT/api/devices" 2>/dev/null || true)"
+  case "$code" in
+    200)
+      if python3 - "$tmp" <<'PY' >/dev/null 2>&1
+import json,sys
+raw=json.load(open(sys.argv[1],encoding="utf-8"))
+devices=raw.get("devices", raw) if isinstance(raw, dict) else raw
+if devices in ("", None, [], {}):
+    raise SystemExit(8)
+PY
+      then
+        state_mark DEVICES_CHECK_OK
+      else
+        state_mark DEVICES_EMPTY_WARN
+      fi
+      rm -f "$tmp"
+      return 0
+      ;;
+    401|403)
+      rm -f "$tmp"
+      state_mark DEVICES_AUTH_FAILED
+      return 3
+      ;;
+    500)
+      rm -f "$tmp"
+      state_mark DEVICES_HTTP_500
+      return 5
+      ;;
+    *)
+      rm -f "$tmp"
+      state_mark "DEVICES_CHECK_WARN_HTTP_${code:-000}"
+      return 0
+      ;;
+  esac
+}
+
 server_data_dir_unsupported() {
   [[ -f "$API_LOG" ]] || return 1
   grep -Eq '/root/汤剑的文件夹|/root/.+AI设计灯光|/root/' "$API_LOG" || return 1
@@ -311,9 +367,7 @@ start_server_root_systemd() {
   [[ -z "$token" ]] && die "无法读取灯光服务 Token，请联系工作人员处理"
 
   local miloco_token="${WAINFORT_MILOCO_TOKEN:-}"
-  if [[ -z "$miloco_token" ]]; then
-    miloco_token="$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.openclaw/miloco/config.json'))); print(d['server']['token'])" 2>/dev/null || true)"
-  fi
+  [[ -z "$miloco_token" ]] && miloco_token="$(read_miloco_token || true)"
 
   sudo mkdir -p "/root/汤剑的文件夹"
 
@@ -322,8 +376,8 @@ start_server_root_systemd() {
     | sudo tee "$env_file" >/dev/null
   sudo chmod 600 "$env_file"
 
-  printf '[Unit]\nDescription=馨光灯光控制服务\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=%s\nEnvironmentFile=%s\nExecStart=%s\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\n' \
-    "$INSTALL_DIR" "$env_file" "$SERVER_BIN" \
+  printf '[Unit]\nDescription=馨光灯光控制服务\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=%s\nEnvironmentFile=%s\nExecStart=%s\nRestart=always\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=full\nReadWritePaths=/root /home/ubuntu %s %s /tmp\n\n[Install]\nWantedBy=multi-user.target\n' \
+    "$INSTALL_DIR" "$env_file" "$SERVER_BIN" "$INSTALL_DIR" "$XINGUANG_BASE_DIR" \
     | sudo tee "$service_file" >/dev/null
 
   sudo systemctl daemon-reload
@@ -334,6 +388,9 @@ start_server_root_systemd() {
   local i
   for i in $(seq 1 30); do
     if server_status_ok; then
+      if ! server_devices_check; then
+        die "灯光服务设备接口暂时不可用，请联系工作人员处理"
+      fi
       state_mark WAINFORT_SERVER_READY
       printf '灯光服务已就绪。\n'
       return 0
@@ -416,6 +473,9 @@ start_server() {
       if server_status_ok; then
         server_debug "health check: ok from existing process"
         state_mark SERVER_STATUS_OK
+        if ! server_devices_check; then
+          die "灯光服务设备接口暂时不可用，请联系工作人员处理"
+        fi
         state_mark WAINFORT_SERVER_READY
         printf '灯光服务已就绪。\n'
         return 0
@@ -463,6 +523,9 @@ start_server() {
     if server_status_ok; then
       server_debug "health check: ok after start"
       state_mark SERVER_STATUS_OK
+      if ! server_devices_check; then
+        die "灯光服务设备接口暂时不可用，请联系工作人员处理"
+      fi
       state_mark WAINFORT_SERVER_READY
       printf '灯光服务已就绪。\n'
       return 0

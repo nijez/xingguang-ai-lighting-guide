@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+XINGUANG_LIST_DEVICES_VERSION="2026-06-29.1"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
+ENV_PRIMARY="/etc/xinguang-wainfort.env"
+ENV_FALLBACK="$INSTALL_DIR/.env"
+API_PORT="${WAINFORT_API_PORT:-1888}"
+API_TOKEN="${WAINFORT_API_TOKEN:-}"
+
+load_env() {
+  local env_file=""
+  if [[ -r "$ENV_PRIMARY" ]]; then
+    env_file="$ENV_PRIMARY"
+  elif [[ -r "$ENV_FALLBACK" ]]; then
+    env_file="$ENV_FALLBACK"
+  fi
+  if [[ -n "$env_file" ]]; then
+    API_TOKEN="$(grep -E '^WAINFORT_API_TOKEN=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+    API_PORT="$(grep -E '^WAINFORT_API_PORT=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+  fi
+  API_PORT="${API_PORT:-1888}"
+}
+
+request() {
+  local path="$1" out="$2" code
+  code="$(curl -sS --max-time 15 -o "$out" -w '%{http_code}' \
+    -H "Authorization: Bearer $API_TOKEN" \
+    "http://127.0.0.1:$API_PORT$path" 2>/dev/null || true)"
+  printf '%s\n' "$code"
+}
+
+main() {
+  load_env
+  mkdir -p "$BASE_DIR"
+  if [[ -z "$API_TOKEN" ]]; then
+    printf '灯光服务认证信息未配置。\n'
+    exit 2
+  fi
+
+  local status_tmp devices_tmp status_code devices_code
+  status_tmp="$(mktemp)"
+  devices_tmp="$(mktemp)"
+  trap 'rm -f "$status_tmp" "$devices_tmp"' EXIT
+
+  status_code="$(request /api/status "$status_tmp")"
+  case "$status_code" in
+    200) ;;
+    401|403)
+      printf '灯光服务认证未通过，请先同步授权信息。\n'
+      exit 3
+      ;;
+    000|"")
+      printf '灯光服务暂时不可用。\n'
+      exit 4
+      ;;
+    *)
+      printf '灯光服务状态异常（HTTP %s）。\n' "$status_code"
+      exit 5
+      ;;
+  esac
+
+  devices_code="$(request /api/devices "$devices_tmp")"
+  case "$devices_code" in
+    200) ;;
+    401|403)
+      printf '设备列表认证未通过，请同步授权信息后重试。\n'
+      exit 3
+      ;;
+    500)
+      printf '设备列表读取失败，灯光服务返回异常。\n'
+      exit 6
+      ;;
+    000|"")
+      printf '设备列表暂时无法访问。\n'
+      exit 4
+      ;;
+    *)
+      printf '设备列表读取异常（HTTP %s）。\n' "$devices_code"
+      exit 5
+      ;;
+  esac
+
+  python3 - "$devices_tmp" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    raw = json.load(open(path, encoding="utf-8"))
+except Exception:
+    print("设备列表返回格式异常。")
+    raise SystemExit(7)
+
+devices = raw.get("devices", raw) if isinstance(raw, dict) else raw
+if devices in ("", None, [], {}):
+    print("设备列表为空。请确认米家家庭已选择，且馨光设备在线。")
+    raise SystemExit(8)
+if isinstance(devices, str):
+    try:
+        devices = json.loads(devices)
+    except Exception:
+        print("设备列表返回格式异常。")
+        raise SystemExit(7)
+
+def walk(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for item in value:
+            yield from walk(item)
+
+def field(obj, *names):
+    for name in names:
+        value = obj.get(name)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+items, seen = [], set()
+for obj in walk(devices):
+    if not isinstance(obj, dict):
+        continue
+    name = field(obj, "name", "device_name", "deviceName", "displayName", "title")
+    room = field(obj, "room", "room_name", "roomName", "parentRoomName", "area")
+    model = field(obj, "model", "modelName", "model_name", "deviceModel", "productModel", "product_model")
+    did = field(obj, "did", "id", "device_id", "deviceId", "miotDid")
+    if not (name or model or did):
+        continue
+    key = did or f"{name}|{room}|{model}"
+    if key in seen:
+        continue
+    seen.add(key)
+    items.append((name or "未命名", room or "未返回", model or "未返回"))
+
+if not items:
+    print("设备列表为空。请确认米家家庭已选择，且馨光设备在线。")
+    raise SystemExit(8)
+
+print(f"设备数量：{len(items)}")
+for index, (name, room, model) in enumerate(items, 1):
+    print(f"{index}. {name}（房间：{room}，型号：{model}）")
+PY
+}
+
+main "$@"

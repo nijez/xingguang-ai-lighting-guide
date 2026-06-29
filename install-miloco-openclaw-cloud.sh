@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.31"
+SCRIPT_VERSION="2026-06-25.32"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -41,8 +41,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.14}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.14}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.15}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.15}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -2211,6 +2211,14 @@ prepare_xinguang_skill_installer() {
   local home_shortcut="$install_dir/xinguang-set-home"
   local path_shortcut="$bin_dir/xinguang-install-skill"
   local path_home_shortcut="$bin_dir/xinguang-set-home"
+  local version_file="$install_dir/VERSION.json"
+  local doctor="$install_dir/xinguang-doctor"
+  local panel="$install_dir/xinguang-panel"
+  local panel_sh="$install_dir/xinguang-panel.sh"
+  local list_devices="$install_dir/xinguang-list-devices"
+  local test_scene="$install_dir/xinguang-test-scene"
+  local tail_logs="$install_dir/xinguang-tail-logs"
+  local export_diag="$install_dir/xinguang-export-diagnostics"
 
   mkdir -p "$install_dir" "$bin_dir"
 
@@ -2225,6 +2233,53 @@ prepare_xinguang_skill_installer() {
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh" ||
     die
+
+  download_versioned_file "$version_file" "\"base_installer\": \"${SCRIPT_VERSION}\"" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/VERSION.json" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/VERSION.json" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/VERSION.json" ||
+    log "警告：VERSION.json 下载失败，不影响主流程"
+  chmod 644 "$version_file" 2>/dev/null || true
+
+  download_versioned_file "$doctor" 'XINGUANG_DOCTOR_VERSION="2026-06-29.1"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-doctor" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-doctor" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-doctor" ||
+    log "警告：xinguang-doctor 下载失败，不影响主流程"
+  download_versioned_file "$panel" 'XINGUANG_PANEL_VERSION="2026-06-29.2"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-panel" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-panel" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-panel" ||
+    log "警告：xinguang-panel 下载失败，不影响主流程"
+  download_versioned_file "$panel_sh" 'XINGUANG_PANEL_SH_VERSION="2026-06-29.2"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-panel.sh" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-panel.sh" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-panel.sh" ||
+    log "警告：xinguang-panel.sh 下载失败，不影响主流程"
+  download_versioned_file "$list_devices" 'XINGUANG_LIST_DEVICES_VERSION="2026-06-29.1"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-list-devices" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-list-devices" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-list-devices" ||
+    log "警告：xinguang-list-devices 下载失败，不影响主流程"
+  download_versioned_file "$test_scene" 'XINGUANG_TEST_SCENE_VERSION="2026-06-29.1"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-test-scene" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-test-scene" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-test-scene" ||
+    log "警告：xinguang-test-scene 下载失败，不影响主流程"
+  download_versioned_file "$tail_logs" 'XINGUANG_TAIL_LOGS_VERSION="2026-06-29.1"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-tail-logs" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-tail-logs" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-tail-logs" ||
+    log "警告：xinguang-tail-logs 下载失败，不影响主流程"
+  download_versioned_file "$export_diag" 'XINGUANG_EXPORT_DIAGNOSTICS_VERSION="2026-06-29.1"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-export-diagnostics" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-export-diagnostics" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-export-diagnostics" ||
+    log "警告：xinguang-export-diagnostics 下载失败，不影响主流程"
+
+  for helper in "$doctor" "$panel" "$panel_sh" "$list_devices" "$test_scene" "$tail_logs" "$export_diag"; do
+    [[ -x "$helper" ]] && cp "$helper" "$bin_dir/$(basename "$helper")" 2>/dev/null || true
+  done
 
   cat >"$shortcut" <<EOF
 #!/usr/bin/env bash

@@ -1,4 +1,0 @@
-如果终端窗口中断，可以在同一个终端运行状态查询命令。
-不要重复运行安装命令。
-
-bash install-xinguang-ai-light.sh status

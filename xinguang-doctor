@@ -1,0 +1,394 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+XINGUANG_DOCTOR_VERSION="2026-06-29.1"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
+STATE_JSON="${XINGUANG_STATE_FILE:-$BASE_DIR/state.json}"
+VERSION_FILE="${XINGUANG_VERSION_FILE:-$BASE_DIR/VERSION.json}"
+SKILL_NAME="wainfort-ai-lighting-run"
+ENV_PRIMARY="/etc/xinguang-wainfort.env"
+ENV_FALLBACK="$INSTALL_DIR/.env"
+API_PORT="${WAINFORT_API_PORT:-1888}"
+API_TOKEN=""
+MILOCO_TOKEN=""
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+read_version_json() {
+  local key="$1" fallback="${2:-}"
+  if [[ -f "$VERSION_FILE" ]] && have python3; then
+    python3 - "$VERSION_FILE" "$key" "$fallback" <<'PY'
+import json,sys
+path,key,fallback=sys.argv[1:4]
+try:
+    data=json.load(open(path,encoding="utf-8"))
+    print(data.get(key) or fallback)
+except Exception:
+    print(fallback)
+PY
+  else
+    printf '%s\n' "$fallback"
+  fi
+}
+
+hash_prefix() {
+  local value="$1"
+  [[ -n "$value" ]] || { printf ''; return; }
+  if have sha256sum; then
+    printf '%s' "$value" | sha256sum | awk '{print substr($1,1,10)}'
+  else
+    printf '%s' "$value" | shasum -a 256 | awk '{print substr($1,1,10)}'
+  fi
+}
+
+load_envs() {
+  local env_file=""
+  if [[ -r "$ENV_PRIMARY" ]]; then
+    env_file="$ENV_PRIMARY"
+  elif [[ -r "$ENV_FALLBACK" ]]; then
+    env_file="$ENV_FALLBACK"
+  fi
+  if [[ -n "$env_file" ]]; then
+    API_TOKEN="$(grep -E '^WAINFORT_API_TOKEN=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+    API_PORT="$(grep -E '^WAINFORT_API_PORT=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+    MILOCO_TOKEN="$(grep -E '^WAINFORT_MILOCO_TOKEN=' "$env_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+  fi
+  API_PORT="${API_PORT:-1888}"
+}
+
+miloco_config_token() {
+  local cfg="$HOME/.openclaw/miloco/config.json"
+  [[ -f "$cfg" ]] || return 1
+  python3 - "$cfg" <<'PY' 2>/dev/null || true
+import json,sys
+data=json.load(open(sys.argv[1],encoding="utf-8"))
+print((data.get("server") or {}).get("token") or data.get("token") or "")
+PY
+}
+
+skill_file_path() {
+  local base=""
+  if have openclaw; then
+    base="$(openclaw skills path 2>/dev/null | tail -n 1 | sed 's/[[:space:]]*$//' || true)"
+  fi
+  [[ -n "$base" && "$base" != *"Usage"* ]] || base="$HOME/.openclaw/skills"
+  printf '%s/%s/SKILL.md\n' "$base" "$SKILL_NAME"
+}
+
+skill_file_version() {
+  local file="$1"
+  [[ -f "$file" ]] || { printf ''; return; }
+  python3 - "$file" <<'PY' 2>/dev/null || true
+import re,sys
+text=open(sys.argv[1],encoding="utf-8").read()
+m=re.search(r'"version"\s*:\s*"([^"]+)"', text)
+print(m.group(1) if m else "")
+PY
+}
+
+script_version() {
+  local file="$1" pattern="$2"
+  [[ -f "$file" ]] || { printf ''; return; }
+  grep -E "$pattern" "$file" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+}
+
+api_get() {
+  local path="$1"
+  [[ -n "$API_TOKEN" ]] || return 2
+  curl -fsS --max-time 10 -H "Authorization: Bearer $API_TOKEN" "http://127.0.0.1:$API_PORT$path"
+}
+
+json_devices_count() {
+  local file="$1"
+  python3 - "$file" <<'PY' 2>/dev/null || printf 'parse_error'
+import json,sys
+raw=open(sys.argv[1],encoding="utf-8").read()
+data=json.loads(raw)
+devices=data.get("devices", data)
+if devices in ("", None, [], {}):
+    print("empty")
+    raise SystemExit
+if isinstance(devices,str):
+    try: devices=json.loads(devices)
+    except Exception:
+        print("parse_error"); raise SystemExit
+def walk(v):
+    if isinstance(v,dict):
+        yield v
+        for c in v.values(): yield from walk(c)
+    elif isinstance(v,list):
+        for i in v: yield from walk(i)
+items=[]
+seen=set()
+for obj in walk(devices):
+    if not isinstance(obj,dict): continue
+    name=str(obj.get("name") or obj.get("device_name") or obj.get("deviceName") or "")
+    did=str(obj.get("did") or obj.get("id") or obj.get("device_id") or "")
+    model=str(obj.get("model") or obj.get("modelName") or obj.get("productModel") or "")
+    if not (name or did or model): continue
+    key=did or f"{name}|{model}"
+    if key in seen: continue
+    seen.add(key); items.append(obj)
+print(len(items))
+PY
+}
+
+home_info() {
+  local target_home="" target_home_id="" current_home="" source="unknown"
+  if [[ -f "$BASE_DIR/target-home.env" ]]; then
+    # shellcheck disable=SC1090
+    source "$BASE_DIR/target-home.env" || true
+    target_home="${XINGUANG_TARGET_HOME:-}"
+    target_home_id="${XINGUANG_TARGET_HOME_ID:-}"
+    source="target-home.env"
+  fi
+  if have miloco-cli; then
+    local home_tmp
+    home_tmp="$(mktemp)"
+    if miloco-cli scope home list >"$home_tmp" 2>/dev/null && [[ -s "$home_tmp" ]]; then
+      current_home="$(python3 - "$home_tmp" <<'PY' 2>/dev/null || true
+import json,sys
+try: data=json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception: raise SystemExit
+def walk(v):
+    if isinstance(v,dict):
+        yield v
+        for c in v.values(): yield from walk(c)
+    elif isinstance(v,list):
+        for i in v: yield from walk(i)
+def truth(v):
+    return v is True or str(v).lower() in ("1","true","yes","当前","已启用")
+for obj in walk(data):
+    if isinstance(obj,dict) and truth(obj.get("in_use", obj.get("inUse", obj.get("current", False)))):
+        print(obj.get("home_name") or obj.get("homeName") or obj.get("family_name") or obj.get("name") or "")
+        break
+PY
+)"
+    fi
+    rm -f "$home_tmp"
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$current_home" "$target_home" "$target_home_id" "$source"
+}
+
+status_word() {
+  case "$1" in
+    PASS) printf '\033[32mPASS\033[0m' ;;
+    WARN) printf '\033[33mWARN\033[0m' ;;
+    FAIL) printf '\033[31mFAIL\033[0m' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+main() {
+  mkdir -p "$BASE_DIR"
+  load_envs
+
+  local expected_base expected_skill expected_skill_file
+  expected_base="$(read_version_json base_installer "2026-06-25.32")"
+  expected_skill="$(read_version_json skill_installer "2026-06-26.15")"
+  expected_skill_file="$(read_version_json skill "4.0.1")"
+
+  local first_entry first_main second_entry second_main skill_installer_skill skill_path skill_version
+  first_entry="$(script_version "$BASE_DIR/install-xinguang-ai-light.sh" 'ENTRY_VERSION=')"
+  first_main="$(script_version "$BASE_DIR/install-miloco-openclaw-cloud.sh" 'SCRIPT_VERSION=')"
+  second_entry="$(script_version "$BASE_DIR/install-xinguang-ai-skill.sh" 'ENTRY_VERSION=')"
+  second_main="$(script_version "$BASE_DIR/install-xinguang-skill.sh" 'XINGUANG_SKILL_INSTALLER_VERSION=')"
+  skill_installer_skill="$(script_version "$BASE_DIR/install-xinguang-skill.sh" 'XINGUANG_SKILL_VERSION=')"
+  skill_path="$(skill_file_path)"
+  skill_version="$(skill_file_version "$skill_path")"
+
+  local openclaw_path openclaw_version gateway_unit gateway_exec gateway_active runtime_probe lightclawbot
+  openclaw_path="$(command -v openclaw 2>/dev/null || true)"
+  openclaw_version="$(openclaw --version 2>/dev/null | head -n 1 || true)"
+  if have systemctl; then
+    gateway_unit="$(systemctl --user list-units --all --type=service --no-legend 2>/dev/null | awk 'tolower($1) ~ /openclaw/ && tolower($1) ~ /gateway/ {print $1; exit}' || true)"
+  else
+    gateway_unit=""
+  fi
+  [[ -n "$gateway_unit" ]] || gateway_unit="openclaw-gateway.service"
+  gateway_exec="$(systemctl --user show "$gateway_unit" -p ExecStart --value 2>/dev/null || true)"
+  gateway_active="$(systemctl --user is-active "$gateway_unit" 2>/dev/null || true)"
+  local gateway_status
+  gateway_status="$(openclaw gateway status --deep 2>/dev/null || openclaw gateway status 2>/dev/null || true)"
+  runtime_probe="$(printf '%s\n' "$gateway_status" | grep -Ei 'Connectivity probe|Runtime|Gateway version' | paste -sd '; ' - || true)"
+  lightclawbot="$(printf '%s\n' "$gateway_status" | grep -Ei 'lightclawbot|WS connected|connected' | head -n 1 || true)"
+
+  local home_line current_home target_home target_home_id home_source
+  home_line="$(home_info)"
+  IFS=$'\t' read -r current_home target_home target_home_id home_source <<<"$home_line"
+
+  local miloco_cli miloco_bound miloco_config_token token_sync token_len token_hash env_perm
+  miloco_cli="$(command -v miloco-cli 2>/dev/null || true)"
+  miloco_config_token="$(miloco_config_token || true)"
+  miloco_bound="unknown"
+  [[ -n "$miloco_config_token" ]] && miloco_bound="true"
+  token_len="${#API_TOKEN}"
+  token_hash="$(hash_prefix "$API_TOKEN")"
+  token_sync="unknown"
+  [[ -n "$MILOCO_TOKEN" && -n "$miloco_config_token" && "$MILOCO_TOKEN" == "$miloco_config_token" ]] && token_sync="true"
+  [[ -n "$MILOCO_TOKEN" && -n "$miloco_config_token" && "$MILOCO_TOKEN" != "$miloco_config_token" ]] && token_sync="false"
+  env_perm="$(stat -c '%a' "$ENV_PRIMARY" 2>/dev/null || stat -f '%Lp' "$ENV_PRIMARY" 2>/dev/null || true)"
+
+  local service_active run_user root_fallback path_contains api_status api_devices devices_count devices_empty devices_state
+  service_active="$(systemctl is-active xinguang-wainfort 2>/dev/null || true)"
+  run_user="$(systemctl show xinguang-wainfort -p User --value 2>/dev/null || true)"
+  [[ "$run_user" == "root" ]] && root_fallback=true || root_fallback=false
+  local service_env
+  service_env="$(systemctl show xinguang-wainfort -p EnvironmentFiles --value 2>/dev/null || true)"
+  if [[ -r "$ENV_PRIMARY" ]] && grep -q '/home/ubuntu/.local/bin' "$ENV_PRIMARY"; then path_contains=true; else path_contains=false; fi
+  if api_get /api/status >/tmp/xinguang-doctor-status.$$ 2>/dev/null; then api_status=200; else api_status=fail; fi
+  if api_get /api/devices >/tmp/xinguang-doctor-devices.$$ 2>/dev/null; then
+    api_devices=200
+    devices_count="$(json_devices_count /tmp/xinguang-doctor-devices.$$)"
+    [[ "$devices_count" == "empty" ]] && devices_empty=true || devices_empty=false
+  else
+    api_devices=fail
+    devices_count=""
+    devices_empty=false
+  fi
+  rm -f /tmp/xinguang-doctor-status.$$ /tmp/xinguang-doctor-devices.$$
+
+  local skill_installed skill_ready
+  [[ -f "$skill_path" ]] && skill_installed=true || skill_installed=false
+  [[ "$skill_installed" == true && "$skill_version" == "$expected_skill_file" ]] && skill_ready=true || skill_ready=false
+
+  local l1=PASS l2=PASS l3=PASS l4=PASS l5=WARN l6=WARN
+  [[ -n "$openclaw_path" && "$gateway_active" == "active" ]] || l1=FAIL
+  [[ "$miloco_bound" == "true" ]] || l2=WARN
+  [[ -n "$target_home" || -n "$current_home" ]] || l2=WARN
+  [[ "$service_active" == "active" && "$api_status" == 200 && "$token_sync" != "false" ]] || l3=FAIL
+  [[ "$api_devices" == 200 ]] || l4=FAIL
+  [[ "$api_devices" == 200 && "$devices_count" == "empty" ]] && l4=WARN
+  [[ "$api_devices" == 200 && "$devices_count" =~ ^[0-9]+$ && "$devices_count" -gt 0 ]] && l4=PASS
+  [[ "$skill_installer_skill" == "$expected_skill_file" && "$skill_version" == "$expected_skill_file" ]] || l3=FAIL
+
+  cat <<EOF
+馨光 Doctor v$XINGUANG_DOCTOR_VERSION
+
+[版本]
+第一阶段安装器：入口 ${first_entry:-未安装} / 主脚本 ${first_main:-未安装} / 期望 $expected_base
+第二阶段安装器：入口 ${second_entry:-未安装} / 主脚本 ${second_main:-未安装} / 期望 $expected_skill
+Skill 文件版本：${skill_version:-未安装} / 期望 $expected_skill_file
+安装器声明 Skill 版本：${skill_installer_skill:-未安装}
+版本漂移：$([[ "$skill_installer_skill" == "$expected_skill_file" && "$skill_version" == "$expected_skill_file" ]] && printf '未发现' || printf '发现，请修复')
+
+[OpenClaw]
+CLI 路径：${openclaw_path:-未找到}
+CLI 版本：${openclaw_version:-未确认}
+gateway service：$gateway_unit
+gateway ExecStart：${gateway_exec:-未确认}
+gateway active：${gateway_active:-未确认}
+gateway probe：${runtime_probe:-未确认}
+lightclawbot：${lightclawbot:-未确认}
+
+[米家]
+是否已绑定：$miloco_bound
+当前家庭：${current_home:-未确认}
+目标家庭：${target_home:-未设置}
+target-home.env：$([[ -f "$BASE_DIR/target-home.env" ]] && printf '存在' || printf '不存在')
+家庭来源：$home_source
+
+[Miloco]
+miloco-cli 路径：${miloco_cli:-未找到}
+miloco token：$([[ -n "$miloco_config_token" ]] && printf '存在' || printf '不存在')
+服务 token：$([[ -n "$API_TOKEN" ]] && printf '存在(len=%s hash=%s)' "$token_len" "$token_hash" || printf '不存在')
+WAINFORT_MILOCO_TOKEN 同步：$token_sync
+
+[灯光服务]
+服务 active：${service_active:-未确认}
+运行用户：${run_user:-未确认}
+root fallback：$root_fallback
+env 权限：${env_perm:-未确认}
+PATH 包含 ubuntu 工具目录：$path_contains
+/api/status：$api_status
+/api/devices：$api_devices
+devices 数量：${devices_count:-未确认}
+devices 为空：$devices_empty
+
+[Skill]
+$SKILL_NAME installed：$skill_installed
+ready：$skill_ready
+Skill 路径：$skill_path
+
+[自然语言链路]
+最近一次请求：暂未接入统一 request_id 追踪
+Skill 调用：待从日志关联
+本地服务调用：待从日志关联
+用户可见结果：由龙虾保持极简，Doctor 只做真实状态检查
+
+[分层结论]
+L1 基础环境：$(status_word "$l1")
+L2 米家绑定：$(status_word "$l2")
+L3 灯光服务：$(status_word "$l3")
+L4 设备发现：$(status_word "$l4")
+L5 本地控灯：$(status_word "$l5")
+L6 龙虾自然语言控灯：$(status_word "$l6")
+EOF
+
+  python3 - "$STATE_JSON" <<PY 2>/dev/null || true
+import json, os, sys, datetime
+state = {
+  "schema": "xinguang-state-v1",
+  "updated_at": datetime.datetime.now().astimezone().isoformat(),
+  "release": {
+    "base_installer": "$expected_base",
+    "skill_installer": "$expected_skill",
+    "skill": "$expected_skill_file",
+    "commit": ""
+  },
+  "openclaw": {
+    "cli_version": "$openclaw_version",
+    "service_active": "$gateway_active" == "active",
+    "runtime": "$runtime_probe",
+    "connectivity_probe": "$runtime_probe",
+    "lightclawbot_connected": "connected" in "$lightclawbot".lower(),
+    "last_error": ""
+  },
+  "mijia": {
+    "bound": "$miloco_bound" == "true",
+    "current_home": "$current_home",
+    "target_home": "$target_home",
+    "target_home_id": "$target_home_id",
+    "home_source": "$home_source"
+  },
+  "miloco": {
+    "token_present": bool("$miloco_config_token"),
+    "token_source": "~/.openclaw/miloco/config.json",
+    "token_synced_to_systemd": "$token_sync" == "true",
+    "last_auth_check": "$token_hash"
+  },
+  "wainfort": {
+    "service_name": "xinguang-wainfort.service",
+    "active": "$service_active" == "active",
+    "run_user": "$run_user",
+    "root_fallback": "$root_fallback" == "true",
+    "path_contains_miloco_cli": "$path_contains" == "true",
+    "api_status": "$api_status",
+    "api_devices_http": "$api_devices",
+    "devices_count": None if "$devices_count" in ("", "empty", "parse_error") else int("$devices_count"),
+    "devices_empty": "$devices_empty" == "true",
+    "last_error": ""
+  },
+  "skill": {
+    "installed": "$skill_installed" == "true",
+    "name": "$SKILL_NAME",
+    "version": "$skill_version",
+    "ready": "$skill_ready" == "true",
+    "last_install_status": ""
+  },
+  "natural_language": {
+    "last_request_id": "",
+    "last_user_text": "",
+    "skill_called": None,
+    "service_called": None,
+    "miloco_called": None,
+    "user_visible_result": ""
+  }
+}
+os.makedirs(os.path.dirname(sys.argv[1]), exist_ok=True)
+json.dump(state, open(sys.argv[1],"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+}
+
+main "$@"
