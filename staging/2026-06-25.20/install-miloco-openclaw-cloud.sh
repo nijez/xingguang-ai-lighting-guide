@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.31"
+SCRIPT_VERSION="2026-06-25.20"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -41,8 +41,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.14}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.14}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.9}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.9}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -120,7 +120,7 @@ print_incomplete_report() {
   state_mark EXITED_BUT_INCOMPLETE || true
   cat >&2 <<EOF
 
-安装未完成，请联系工作人员处理。
+安装暂时无法继续，请联系工作人员处理。
 EOF
 }
 
@@ -206,57 +206,46 @@ write_supervisor_launcher() {
   chmod +x "$launcher"
 }
 
-format_elapsed_mmss() {
-  local seconds="${1:-0}"
-  printf '%02d:%02d' $((seconds / 60)) $((seconds % 60))
-}
-
-terminal_marker_fields() {
+terminal_progress_message_for_marker() {
   case "$1" in
-    INSTALL_STARTED|BACKGROUND_SUPERVISOR_STARTED)
-      printf '1|start|正在启动安装|3\n'
-      ;;
     STEP_1_STARTED)
-      printf '4|system|正在检查系统环境|5\n'
+      printf '[10%%] 正在检查系统环境...\n'
       ;;
     STEP_1_DONE)
-      printf '6|deps|正在准备必要依赖|7\n'
+      printf '[20%%] 正在准备必要依赖...\n'
       ;;
     STEP_2_STARTED)
-      printf '8|openclaw_install|正在升级龙虾|21\n'
+      printf '[30%%] 正在检查龙虾环境...\n'
       ;;
     STEP_2_DONE)
-      printf '22|openclaw_done|正在配置龙虾|23\n'
+      printf '[40%%] 正在更新龙虾环境...\n'
       ;;
     STEP_3_STARTED)
-      printf '24|connector|正在安装灯光插件|25\n'
+      printf '[50%%] 正在安装灯光连接组件...\n'
       ;;
     LIGHT_COMPONENT_DOWNLOAD_STARTED)
-      printf '26|download|正在下载灯光组件|27\n'
+      printf '[60%%] 正在下载灯光组件...\n'
       ;;
     LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED)
-      printf '28|service|正在安装灯光服务|29\n'
+      printf '[70%%] 正在安装灯光服务...\n'
       ;;
-    STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED)
-      printf '30|installer|正在预置馨光 Skill 安装器|31\n'
+    STEP_3_DONE)
+      printf '[75%%] 正在准备米家连接...\n'
       ;;
-    XINGUANG_SKILL_INSTALLER_READY)
-      printf '32|installer|正在预置馨光 Skill 安装器|33\n'
+    STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED)
+      printf '[75%%] 正在准备米家连接...\n'
       ;;
-    STEP_5_DONE|GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
-      printf '34|gateway_recover|正在启动龙虾服务|90\n'
+    XINGUANG_SKILL_PREINSTALL_STARTED|XINGUANG_SKILL_INSTALL_DONE|XINGUANG_SKILL_PREINSTALL_DONE|STEP_5_DONE)
+      printf '[80%%] 正在安装馨光 Skill...\n'
       ;;
-    GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE)
-      printf '46|gateway_recover|正在启动龙虾服务|90\n'
-      ;;
-    STEP_6_STARTED)
-      printf '53|verify|正在验证安装结果|99\n'
+    STEP_6_STARTED|GATEWAY_RESTART_DONE)
+      printf '[90%%] 正在验证安装结果...\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '100|complete|安装完成|100\n'
+      printf '[100%%] 安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
       ;;
-    OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE)
-      printf '0|error|安装未完成，请联系工作人员处理|0\n'
+    ERROR:*|EXITED_BUT_INCOMPLETE)
+      printf '安装未完成，请联系工作人员处理。\n'
       ;;
     *)
       return 1
@@ -264,55 +253,34 @@ terminal_marker_fields() {
   esac
 }
 
-terminal_progress_message_for_marker() {
-  local fields percent phase label phase_max
-  fields="$(terminal_marker_fields "$1" || true)"
-  [[ -n "$fields" ]] || return 1
-  IFS='|' read -r percent phase label phase_max <<<"$fields"
-
-  case "$phase" in
-    complete)
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
+terminal_heartbeat_message_for_marker() {
+  local marker="$1"
+  case "$marker" in
+    STEP_1_STARTED|STEP_1_DONE)
+      printf '仍在准备安装环境，请稍候...\n'
       ;;
-    error)
-      printf '安装未完成，请联系工作人员处理。\n'
+    STEP_2_STARTED|STEP_2_DONE)
+      printf '仍在检查龙虾环境，请稍候...\n'
+      ;;
+    STEP_3_STARTED|LIGHT_COMPONENT_DOWNLOAD_STARTED)
+      printf '仍在安装灯光连接组件，请稍候...\n'
+      ;;
+    LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED)
+      printf '仍在安装灯光服务，请稍候...\n'
+      ;;
+    STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED)
+      printf '仍在准备米家连接，请稍候...\n'
+      ;;
+    XINGUANG_SKILL_PREINSTALL_STARTED|XINGUANG_SKILL_INSTALL_DONE|XINGUANG_SKILL_PREINSTALL_DONE|STEP_5_DONE)
+      printf '仍在安装馨光 Skill，请稍候...\n'
+      ;;
+    STEP_6_STARTED|GATEWAY_RESTART_DONE|GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED)
+      printf '仍在验证安装结果，请稍候...\n'
       ;;
     *)
-      printf '[已用 00:01] %s%% %s...\n' "$percent" "$label"
+      printf '安装仍在继续，请稍候...\n'
       ;;
   esac
-}
-
-terminal_best_progress_fields() {
-  local marker fields percent phase label phase_max
-  local best_percent=-1
-  local best_fields=''
-
-  if [[ ! -f "$STATE_FILE" ]]; then
-    terminal_marker_fields INSTALL_STARTED
-    return
-  fi
-
-  if install_failed_state; then
-    terminal_marker_fields EXITED_BUT_INCOMPLETE
-    return
-  fi
-
-  while IFS= read -r marker; do
-    fields="$(terminal_marker_fields "$marker" || true)"
-    [[ -n "$fields" ]] || continue
-    IFS='|' read -r percent phase label phase_max <<<"$fields"
-    if (( percent > best_percent )); then
-      best_percent="$percent"
-      best_fields="$fields"
-    fi
-  done <"$STATE_FILE"
-
-  if [[ -n "$best_fields" ]]; then
-    printf '%s\n' "$best_fields"
-  else
-    terminal_marker_fields INSTALL_STARTED
-  fi
 }
 
 progress_message_for_marker() {
@@ -336,14 +304,11 @@ EOF
     GATEWAY_RESTART_DONE)
       printf '当前进度：\n3/4 正在准备米家连接\n'
       ;;
-    GATEWAY_SERVICE_REPAIR_STARTED)
-      printf '龙虾后台服务正在恢复，请稍候...\n'
-      ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '当前进度：\n4/4 基础环境安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
+      printf '当前进度：\n4/4 安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
       ;;
-    OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE)
-      printf '安装未完成，请联系工作人员处理。\n'
+    ERROR:*|EXITED_BUT_INCOMPLETE)
+      printf '安装暂时无法继续，请联系工作人员处理。\n'
       ;;
     *)
       return 1
@@ -362,7 +327,7 @@ status_running_hint() {
 status_complete_message() {
   cat <<'EOF'
 当前进度：
-4/4 基础环境安装完成
+4/4 安装完成
 
 下一步：
 请回到龙虾，发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」
@@ -389,26 +354,38 @@ EOF
 }
 
 terminal_status_report() {
-  local fields percent phase label phase_max
-  fields="$(terminal_best_progress_fields)"
-  IFS='|' read -r percent phase label phase_max <<<"$fields"
-
-  case "$phase" in
-    complete)
-      cat <<'EOF'
-[100%] 基础环境安装完成。
+  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+    cat <<'EOF'
+[100%] 安装完成。
 
 下一步：
 请回到龙虾，发送「绑定米家账号」。
 EOF
-      ;;
-    error)
-      printf '安装未完成，请联系工作人员处理。\n'
-      ;;
-    *)
-      printf '[%s%%] %s...\n\n请继续等待，不要重复执行安装命令。\n' "$percent" "$label"
-      ;;
-  esac
+    return
+  fi
+
+  if state_has EXITED_BUT_INCOMPLETE || grep -q '^ERROR:' "$STATE_FILE" 2>/dev/null; then
+    printf '安装未完成，请联系工作人员处理。\n'
+    return
+  fi
+
+  local latest message
+  latest="$(state_latest_marker)"
+  message="$(terminal_progress_message_for_marker "$latest" || true)"
+  if [[ -z "$message" ]]; then
+    if state_has STEP_5_DONE || state_has XINGUANG_SKILL_PREINSTALL_STARTED || state_has XINGUANG_SKILL_INSTALL_DONE; then
+      message='[80%] 正在安装馨光 Skill...'
+    elif state_has STEP_3_DONE; then
+      message='[75%] 正在准备米家连接...'
+    elif state_has STEP_3_STARTED; then
+      message='[50%] 正在安装灯光连接组件...'
+    elif state_has STEP_2_STARTED; then
+      message='[30%] 正在检查龙虾环境...'
+    else
+      message='[10%] 正在检查系统环境...'
+    fi
+  fi
+  printf '%s\n\n请继续等待，不要重复执行安装命令。\n' "$message"
 }
 
 emit_progress_updates() {
@@ -424,10 +401,9 @@ emit_progress_updates() {
       STEP_1_STARTED|STEP_1_DONE|STEP_2_STARTED) key="PHASE_1_PREP" ;;
       STEP_2_DONE|STEP_3_STARTED|PLUGIN_READY) key="PHASE_2_PLUGIN" ;;
       STEP_3_DONE|STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED|STEP_5_DONE|STEP_6_STARTED|GATEWAY_RESTART_DONE) key="PHASE_3_MIJIA" ;;
-      GATEWAY_SERVICE_REPAIR_STARTED) key="GATEWAY_SERVICE_REPAIR" ;;
       GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED) key="RECONNECT_EXPECTED" ;;
       STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) key="INSTALL_COMPLETE" ;;
-      OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
+      ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
     esac
     if ! grep -Fxq "$key" "$seen_file" 2>/dev/null; then
       printf '%s\n' "$message"
@@ -436,142 +412,58 @@ emit_progress_updates() {
   done <"$STATE_FILE"
 }
 
-terminal_emit_progress() {
-  local percent="$1"
-  local phase="$2"
-  local label="$3"
-  local phase_max="$4"
-  local elapsed="${5:-0}"
-
-  if [[ "$phase" == error ]]; then
-    if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
-      TERMINAL_CURRENT_PHASE="error"
-      printf '安装未完成，请联系工作人员处理。\n'
-    fi
-    return 0
-  fi
-
-  if [[ "$phase" == complete ]]; then
-    if (( TERMINAL_MAX_PERCENT < 100 )); then
-      TERMINAL_MAX_PERCENT=100
-      TERMINAL_CURRENT_PHASE="complete"
-      TERMINAL_CURRENT_LABEL="基础环境安装完成"
-      TERMINAL_CURRENT_PHASE_MAX=100
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
-    fi
-    return 0
-  fi
-
-  if (( percent < TERMINAL_MAX_PERCENT )); then
-    return 0
-  fi
-
-  if [[ "$phase" != "$TERMINAL_CURRENT_PHASE" ]]; then
-    TERMINAL_CURRENT_PHASE="$phase"
-    TERMINAL_CURRENT_LABEL="$label"
-    TERMINAL_CURRENT_PHASE_MAX="$phase_max"
-    TERMINAL_PHASE_STARTED_ELAPSED="$elapsed"
-  else
-    TERMINAL_CURRENT_LABEL="$label"
-    TERMINAL_CURRENT_PHASE_MAX="$phase_max"
-  fi
-
-  if (( percent > TERMINAL_MAX_PERCENT )); then
-    local display_elapsed formatted
-    display_elapsed="$elapsed"
-    (( display_elapsed < 1 )) && display_elapsed=1
-    formatted="$(format_elapsed_mmss "$display_elapsed")"
-    TERMINAL_MAX_PERCENT="$percent"
-    printf '[已用 %s] %s%% %s...\n' "$formatted" "$percent" "$label"
-  fi
-}
-
 emit_terminal_progress_updates() {
   local seen_file="$1"
-  local elapsed="${2:-0}"
   [[ -f "$STATE_FILE" ]] || return 0
 
-  local marker fields percent phase label phase_max
+  local marker message key
   while IFS= read -r marker; do
-    fields="$(terminal_marker_fields "$marker" || true)"
-    [[ -n "$fields" ]] || continue
-    IFS='|' read -r percent phase label phase_max <<<"$fields"
-    terminal_emit_progress "$percent" "$phase" "$label" "$phase_max" "$elapsed"
-  done <"$STATE_FILE"
-}
-
-terminal_heartbeat_message() {
-  local elapsed="$1"
-  local formatted phase_elapsed percent label
-
-  (( TERMINAL_MAX_PERCENT > 0 && TERMINAL_MAX_PERCENT < 100 )) || return 0
-
-  formatted="$(format_elapsed_mmss "$elapsed")"
-  phase_elapsed=$((elapsed - TERMINAL_PHASE_STARTED_ELAPSED))
-  (( phase_elapsed < 0 )) && phase_elapsed=0
-  percent=$((TERMINAL_MAX_PERCENT + 1))
-  if (( percent > TERMINAL_CURRENT_PHASE_MAX )); then
-    percent="$TERMINAL_CURRENT_PHASE_MAX"
-  fi
-  if (( percent > TERMINAL_MAX_PERCENT )); then
-    TERMINAL_MAX_PERCENT="$percent"
-  fi
-
-  label="$TERMINAL_CURRENT_LABEL"
-  if (( phase_elapsed >= 900 )); then
-    if [[ "$TERMINAL_CURRENT_PHASE" == skill ]]; then
-      printf '[已用 %s] %s%% 馨光 Skill 安装时间较长，仍在继续。请不要重复执行安装命令。\n' "$formatted" "$percent"
-    else
-      printf '[已用 %s] %s%% %s时间较长，仍在继续。请不要重复执行安装命令。\n' "$formatted" "$percent" "$label"
+    message="$(terminal_progress_message_for_marker "$marker" || true)"
+    [[ -n "$message" ]] || continue
+    key="$marker"
+    case "$marker" in
+      STEP_3_STARTED) key="T_PHASE_50" ;;
+      LIGHT_COMPONENT_DOWNLOAD_STARTED) key="T_PHASE_60" ;;
+      LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED) key="T_PHASE_70" ;;
+      STEP_4_STARTED|STEP_4_DONE|STEP_5_STARTED) key="T_PHASE_75" ;;
+      XINGUANG_SKILL_PREINSTALL_STARTED|XINGUANG_SKILL_INSTALL_DONE|XINGUANG_SKILL_PREINSTALL_DONE|STEP_5_DONE) key="T_PHASE_80" ;;
+      STEP_6_STARTED|GATEWAY_RESTART_DONE) key="T_PHASE_90" ;;
+      STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) key="T_INSTALL_COMPLETE" ;;
+      ERROR:*|EXITED_BUT_INCOMPLETE) key="T_INSTALL_ERROR" ;;
+    esac
+    if ! grep -Fxq "$key" "$seen_file" 2>/dev/null; then
+      printf '%s\n' "$message"
+      printf '%s\n' "$key" >>"$seen_file"
     fi
-  elif (( phase_elapsed >= 300 )); then
-    printf '[已用 %s] %s%% %s，时间较长，请继续等待...\n' "$formatted" "$percent" "$label"
-  else
-    printf '[已用 %s] %s%% %s，请稍候...\n' "$formatted" "$percent" "$label"
-  fi
+  done <"$STATE_FILE"
 }
 
 state_latest_marker() {
   [[ -f "$STATE_FILE" ]] || {
-    printf 'INSTALL_STARTED'
+    printf 'STEP_1_STARTED'
     return
   }
-  tail -n 1 "$STATE_FILE" 2>/dev/null || printf 'INSTALL_STARTED'
-}
-
-install_failed_state() {
-  state_has EXITED_BUT_INCOMPLETE && return 0
-  state_has OPENCLAW_GATEWAY_RECOVERY_FAILED && return 0
-  state_has WAINFORT_SERVER_DATA_DIR_UNSUPPORTED && return 0
-  state_has WAINFORT_SERVER_START_FAILED && return 0
-  grep -q '^ERROR:' "$STATE_FILE" 2>/dev/null
+  tail -n 1 "$STATE_FILE" 2>/dev/null || printf 'STEP_1_STARTED'
 }
 
 observe_terminal_background_progress() {
   local max_seconds="${FRONT_PROGRESS_MAX_SECONDS:-1800}"
   local interval="${FRONT_PROGRESS_INTERVAL_SECONDS:-5}"
-  local heartbeat_seconds="${FRONT_PROGRESS_HEARTBEAT_SECONDS:-15}"
+  local heartbeat_seconds="${FRONT_PROGRESS_HEARTBEAT_SECONDS:-20}"
   local elapsed=0
   local heartbeat_elapsed=0
   local seen_file="$WORK_DIR/terminal-progress-seen.txt"
   : >"$seen_file"
-  TERMINAL_MAX_PERCENT=0
-  TERMINAL_CURRENT_PHASE=""
-  TERMINAL_CURRENT_LABEL=""
-  TERMINAL_CURRENT_PHASE_MAX=0
-  TERMINAL_PHASE_STARTED_ELAPSED=0
 
   printf '\n开始安装，请稍候。\n\n'
 
   while (( elapsed <= max_seconds )); do
-    emit_terminal_progress_updates "$seen_file" "$elapsed"
+    emit_terminal_progress_updates "$seen_file"
     if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
       return 0
     fi
-    if install_failed_state; then
-      if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
-        printf '安装未完成，请联系工作人员处理。\n'
-      fi
+    if state_has EXITED_BUT_INCOMPLETE || grep -q '^ERROR:' "$STATE_FILE" 2>/dev/null; then
+      printf '安装未完成，请联系工作人员处理。\n'
       return 0
     fi
     if (( elapsed >= max_seconds )); then
@@ -581,20 +473,20 @@ observe_terminal_background_progress() {
     elapsed=$((elapsed + interval))
     heartbeat_elapsed=$((heartbeat_elapsed + interval))
     if (( heartbeat_elapsed >= heartbeat_seconds )); then
-      terminal_heartbeat_message "$elapsed"
+      terminal_heartbeat_message_for_marker "$(state_latest_marker)"
       heartbeat_elapsed=0
     fi
   done
 
-  emit_terminal_progress_updates "$seen_file" "$elapsed"
+  emit_terminal_progress_updates "$seen_file"
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
     return 0
   fi
 
   if background_supervisor_running; then
-    cat <<EOF
+    cat <<'EOF'
 
-$(terminal_heartbeat_message "$elapsed")
+安装还在继续，请稍候。
 如果超过 2 分钟没有新进度，可在当前终端运行：
 bash install-xinguang-ai-light.sh status
 不要重复执行安装命令。
@@ -641,10 +533,6 @@ observe_background_progress() {
     if state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
       return 0
     fi
-    if install_failed_state; then
-      printf '安装未完成，请联系工作人员处理。\n'
-      return 0
-    fi
     if (( elapsed >= max_seconds )); then
       break
     fi
@@ -656,22 +544,18 @@ observe_background_progress() {
   if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
     return 0
   fi
-  if install_failed_state; then
-    printf '安装未完成，请联系工作人员处理。\n'
-    return 0
-  fi
 
   if background_supervisor_running; then
     cat <<EOF
 
-当前安装未完成，请稍后查询进度。
+安装还在继续，请稍候。
 如果超过 2 分钟没有新进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
   else
     cat <<EOF
 
-安装未完成，请联系工作人员处理。
+安装暂时无法确认。
 如果超过 2 分钟没有新进度，请复制状态查询指令发给龙虾。
 不要重复发送一键安装指令。
 EOF
@@ -712,13 +596,13 @@ launch_background_supervisor() {
 }
 
 die() {
-  printf '\n安装未完成，请联系工作人员处理。\n' >&2
+  printf '\n安装暂时无法继续，请联系工作人员处理。\n' >&2
   exit 1
 }
 
 on_error() {
   local status=$?
-  printf '\n安装未完成，请联系工作人员处理。\n' >&2
+  printf '\n安装暂时无法继续，请联系工作人员处理。\n' >&2
   print_incomplete_report "script exited with code $status" || true
 }
 
@@ -741,10 +625,10 @@ setup_runtime_paths() {
     nvm_node_dir="$(find "$HOME/.nvm/versions/node" -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort -V | tail -1 || true)"
   fi
 
-  export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/global/5/node_modules/.bin:$PATH"
   if [[ -n "$nvm_node_dir" && -d "$nvm_node_dir/bin" ]]; then
     export PATH="$nvm_node_dir/bin:$PATH"
   fi
+  export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/global/5/node_modules/.bin:$PATH"
 
   append_path_once 'export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/global/5/node_modules/.bin:$PATH"'
   append_path_once 'if [ -d "$HOME/.nvm/versions/node" ]; then NODE_DIR="$(find "$HOME/.nvm/versions/node" -maxdepth 1 -type d -name '\''v*'\'' 2>/dev/null | sort -V | tail -1)"; [ -n "$NODE_DIR" ] && export PATH="$NODE_DIR/bin:$PATH"; fi'
@@ -996,13 +880,17 @@ configure_openclaw_gateway() {
 
   restart_openclaw_gateway_best_effort
 
-  if ensure_openclaw_gateway_service_running; then
+  if wait_for_openclaw_gateway; then
+    gateway_ok=1
+  fi
+
+  if [[ "$gateway_ok" != 1 ]] && ss -ltn 2>/dev/null | grep -Eq ":${OPENCLAW_PORT}\\b"; then
+    log "龙虾后台服务已就绪，继续后续安装"
     gateway_ok=1
   fi
 
   if [[ "$gateway_ok" != 1 ]]; then
-    state_mark OPENCLAW_GATEWAY_RECOVERY_FAILED
-    die "龙虾后台服务暂未恢复"
+    log "WARNING: 龙虾后台服务暂未确认就绪，仍会继续安装灯光插件，最终验证会再次检查。"
   fi
 
   report_openclaw_versions || true
@@ -1043,7 +931,7 @@ install_openclaw() {
         state_mark OPENCLAW_VERSION_OK
         log "Skipping OpenClaw package update (OPENCLAW_UPDATE=$OPENCLAW_UPDATE and installed version satisfies $OPENCLAW_MIN_VERSION)"
       fi
-      if ensure_openclaw_gateway_service_running; then
+      if wait_for_openclaw_gateway; then
         log "OpenClaw gateway already usable; skipping onboard reconfiguration"
         report_openclaw_versions || true
         return 0
@@ -1411,135 +1299,6 @@ openclaw_gateway_unit() {
     awk 'tolower($1) ~ /openclaw/ && tolower($1) ~ /gateway/ {print $1; exit}'
 }
 
-openclaw_gateway_unit_file() {
-  local unit="$1"
-  local unit_file=""
-
-  unit_file="$(systemctl --user show "$unit" -p FragmentPath --value 2>/dev/null || true)"
-  if [[ -n "$unit_file" && "$unit_file" != "n/a" && -f "$unit_file" ]]; then
-    printf '%s' "$unit_file"
-    return 0
-  fi
-
-  unit_file="$HOME/.config/systemd/user/$unit"
-  if [[ -f "$unit_file" ]]; then
-    printf '%s' "$unit_file"
-    return 0
-  fi
-
-  return 1
-}
-
-openclaw_gateway_service_active_running() {
-  local unit="$1"
-  local active sub
-
-  active="$(systemctl --user show "$unit" -p ActiveState --value 2>/dev/null || true)"
-  sub="$(systemctl --user show "$unit" -p SubState --value 2>/dev/null || true)"
-  [[ "$active" == active && "$sub" == running ]]
-}
-
-repair_openclaw_gateway_execstart_if_needed() {
-  setup_runtime_paths
-  have systemctl || return 1
-  have openclaw || return 1
-
-  local unit unit_file current_openclaw exec_line args gateway_args new_line tmp
-  unit="$(openclaw_gateway_unit || true)"
-  [[ -n "$unit" ]] || return 1
-
-  unit_file="$(openclaw_gateway_unit_file "$unit" || true)"
-  [[ -n "$unit_file" ]] || return 1
-
-  current_openclaw="$(command -v openclaw 2>/dev/null || true)"
-  [[ -n "$current_openclaw" ]] || return 1
-
-  exec_line="$(grep -E '^ExecStart=' "$unit_file" | tail -n 1 || true)"
-  if [[ -n "$exec_line" ]]; then
-    args="${exec_line#ExecStart=}"
-    if [[ "$args" == "$current_openclaw "* ]]; then
-      return 0
-    fi
-    if [[ "$args" == *" gateway"* ]]; then
-      gateway_args="gateway${args#* gateway}"
-    else
-      gateway_args="gateway --port ${OPENCLAW_PORT}"
-    fi
-  else
-    gateway_args="gateway --port ${OPENCLAW_PORT}"
-  fi
-
-  new_line="ExecStart=$current_openclaw $gateway_args"
-  [[ "$exec_line" == "$new_line" ]] && return 0
-
-  state_mark GATEWAY_SERVICE_REPAIR_STARTED
-  log "龙虾后台服务正在恢复，请稍候..."
-
-  tmp="$WORK_DIR/openclaw-gateway.service"
-  awk -v new_line="$new_line" '
-    BEGIN { replaced = 0 }
-    /^ExecStart=/ {
-      if (!replaced) {
-        print new_line
-        replaced = 1
-      }
-      next
-    }
-    { print }
-    END {
-      if (!replaced) {
-        print new_line
-      }
-    }
-  ' "$unit_file" >"$tmp"
-  cat "$tmp" >"$unit_file"
-
-  systemctl --user daemon-reload >/dev/null 2>&1 || return 1
-  local unit_for_restart
-  unit_for_restart="$(openclaw_gateway_unit || true)"
-  if [[ -n "$unit_for_restart" ]]; then
-    systemctl --user reset-failed "$unit_for_restart" >/dev/null 2>&1 || true
-    systemctl --user restart "$unit_for_restart" >/dev/null 2>&1 || true
-  fi
-}
-
-ensure_openclaw_gateway_service_running() {
-  setup_runtime_paths
-  have openclaw || return 1
-
-  if ! have systemctl; then
-    wait_for_openclaw_gateway
-    return $?
-  fi
-
-  local unit attempt
-  unit="$(openclaw_gateway_unit || true)"
-  [[ -n "$unit" ]] || return 1
-
-  repair_openclaw_gateway_execstart_if_needed || true
-
-  if ! openclaw_gateway_service_active_running "$unit"; then
-    state_mark GATEWAY_SERVICE_REPAIR_STARTED
-    log "龙虾后台服务正在恢复，请稍候..."
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-    systemctl --user restart "$unit" >/dev/null 2>&1 ||
-      systemctl --user start "$unit" >/dev/null 2>&1 || true
-  fi
-
-  for attempt in {1..30}; do
-    if openclaw_gateway_service_active_running "$unit"; then
-      wait_for_openclaw_gateway || true
-      state_mark GATEWAY_SERVICE_ACTIVE
-      return 0
-    fi
-    sleep 2
-  done
-
-  state_mark OPENCLAW_GATEWAY_RECOVERY_FAILED
-  return 1
-}
-
 repair_gateway_deactivating_if_needed() {
   [[ "$RUN_CONTEXT" == agentchat_supervisor ]] || return 0
   have systemctl || return 0
@@ -1585,9 +1344,9 @@ restart_openclaw_gateway_best_effort() {
     log "WARNING: OpenClaw gateway restart returned non-zero; continuing to status checks"
   fi
   repair_gateway_deactivating_if_needed || true
-  ensure_openclaw_gateway_service_running || {
+  wait_for_openclaw_gateway || {
     repair_gateway_deactivating_if_needed || true
-    ensure_openclaw_gateway_service_running || true
+    wait_for_openclaw_gateway || true
   }
   state_mark GATEWAY_RESTART_DONE
   report_openclaw_versions || true
@@ -1718,13 +1477,8 @@ verify_install() {
   printf '脚本版本: %s\n' "$SCRIPT_VERSION"
   if have openclaw; then
     printf '龙虾环境: 已安装\n'
-    if ! ensure_openclaw_gateway_service_running; then
-      state_mark OPENCLAW_GATEWAY_RECOVERY_FAILED
-      die "龙虾后台服务暂未恢复"
-    fi
   else
     printf '龙虾环境: 未确认\n'
-    die "龙虾环境暂未确认"
   fi
   if have miloco-cli; then
     local service_status_file="$WORK_DIR/light-service-status.json"
@@ -1963,21 +1717,15 @@ account_bound_known() {
 }
 
 xinguang_home_selected_known() {
-  [[ -f "$HOME/xinguang-ai-light/target-home.env" ]] && return 0
   [[ -f "$HOME/wainfort-light/target-home.env" ]] && return 0
   [[ -f /tmp/xinguang-skill-install.state ]] &&
     grep -Eq 'HOME_SELECTION_SINGLE_HOME_AUTO|HOME_SWITCH_DONE|DEVICE_LIST_READY|XINGUANG_SKILL_INSTALL_DONE' /tmp/xinguang-skill-install.state
 }
 
 xinguang_skill_installed_known() {
-  state_has XINGUANG_SKILL_INSTALL_DONE &&
-    state_has WAINFORT_SERVER_READY &&
-    state_has SKILL_INSTALL_VERIFIED &&
-    return 0
+  state_has XINGUANG_SKILL_INSTALL_DONE && return 0
   [[ -f /tmp/xinguang-skill-install.state ]] &&
-    grep -q 'XINGUANG_SKILL_INSTALL_DONE' /tmp/xinguang-skill-install.state &&
-    grep -q 'WAINFORT_SERVER_READY' /tmp/xinguang-skill-install.state &&
-    grep -q 'SKILL_INSTALL_VERIFIED' /tmp/xinguang-skill-install.state
+    grep -Eq 'XINGUANG_SKILL_INSTALL_DONE|LIGHT_TEST_SUCCESS|PHYSICAL_SUCCESS_API_FALSE' /tmp/xinguang-skill-install.state
 }
 
 print_next_actions() {
@@ -1992,8 +1740,7 @@ EOF
   elif xinguang_home_selected_known; then
     cat <<'EOF'
 
-下一步：
-请发送「安装馨光 Skill」。
+灯光能力暂未安装完成，请联系工作人员处理。
 EOF
   elif account_bound_known; then
     cat <<'EOF'
@@ -2123,105 +1870,24 @@ download_versioned_file() {
   return 1
 }
 
-write_xinguang_workspace_rules() {
-  local workspace_dir="$HOME/.openclaw/workspace"
-  local user_md="$workspace_dir/USER.md"
-
-  [[ -d "$workspace_dir" ]] || return 0
-
-  cat >"$user_md" <<'USERMD'
-# USER.md - 馨光 AI 设计灯光
-
-## 当前用户
-
-馨光 AI 设计灯光内测用户。
-
-## 固定对话规则（最高优先级）
-
-### 用户说「绑定米家账号」时
-
-禁止输出任何思考过程、分析、工具调用说明、技能搜索过程。只输出最终回复用户的内容。
-
-步骤一：执行 `miloco-cli account bind`，从输出中提取 https:// 开头的授权 URL，只回复：
-
-请点击下面链接完成米家授权：
-
-[点击打开米家授权链接](<URL>)
-
-授权完成后，把授权码复制回来。
-
-步骤二：收到授权码后，执行 `miloco-cli account authorize <授权码>`，再执行 `miloco-cli scope home list` 获取家庭列表（返回 JSON，从 data 数组读取 home_name 和 home_id）。在同一条回复中根据家庭数量输出：
-
-只有一个家庭时，回复：
-
-米家账号绑定成功。
-
-下一步：
-请发送「安装馨光 Skill」。
-
-有多个家庭时，回复：
-
-米家账号绑定成功。
-检测到多个家庭，请选择馨光设备所在家庭：
-
-1. 【家庭名称】
-2. 【家庭名称】
-
-步骤三：用户选择家庭后，后台静默执行 `miloco-cli scope home switch <home_id>`，只回复：
-
-已切换到【家庭名称】。
-
-下一步：
-请发送「安装馨光 Skill」。
-
-禁止：自动选第一个家庭、显示摄像头上限、显示裸露 URL、引导查看设备、显示内部命令。
-
-### 用户说「安装馨光 Skill」时
-
-1. 优先执行本地命令：xinguang-install-skill
-2. 如果本地命令不可用，执行：bash ~/xinguang-ai-light/install-xinguang-ai-skill.sh
-3. 只显示：
-
-正在安装馨光 Skill，大约需要 2 分钟，请耐心等待。
-安装完成后会自动通知您，请勿重复发送消息。
-
-4. 安装成功后只回复：
-
-馨光 Skill 已安装，可以开始测试灯光。
-
-你可以说：
-客厅来个马尔代夫的海边日落
-
-5. 安装失败后只回复：
-
-馨光 Skill 暂时无法安装，请联系工作人员处理。
-
-禁止：搜索 ClawHub、询问 Skill 来源、新建 Skill、推荐普通米家灯控。
-USERMD
-
-  log "馨光对话规则已写入龙虾工作区"
-}
-
-prepare_xinguang_skill_installer() {
+preinstall_xinguang_skill() {
   local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
   local bin_dir="$HOME/.local/bin"
   local entry="$install_dir/install-xinguang-ai-skill.sh"
   local main="$install_dir/install-xinguang-skill.sh"
   local shortcut="$install_dir/xinguang-install-skill"
-  local home_shortcut="$install_dir/xinguang-set-home"
   local path_shortcut="$bin_dir/xinguang-install-skill"
-  local path_home_shortcut="$bin_dir/xinguang-set-home"
 
   mkdir -p "$install_dir" "$bin_dir"
 
   download_versioned_file "$entry" "ENTRY_VERSION=\"$XINGUANG_SKILL_ENTRY_VERSION\"" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/staging/2026-06-25.20/install-xinguang-ai-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-ai-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-ai-skill.sh" ||
     die
 
   download_versioned_file "$main" "XINGUANG_SKILL_INSTALLER_VERSION=\"$XINGUANG_SKILL_INSTALLER_VERSION\"" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/staging/2026-06-25.20/install-xinguang-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh" ||
     die
@@ -2229,53 +1895,19 @@ prepare_xinguang_skill_installer() {
   cat >"$shortcut" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-config="$install_dir/target-home.env"
-if [[ -f "\$config" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "\$config"
-  set +a
-fi
-action="\${1:-install}"
-case "\$action" in
-  status|progress)
-    TARGET="$main" INSTALL_ACTION=status INSTALL_NONINTERACTIVE=1 bash "$entry" status
-    ;;
-  *)
-    TARGET="$main" INSTALL_ACTION=continue INSTALL_NONINTERACTIVE=1 bash "$entry"
-    ;;
-esac
+TARGET="$main" INSTALL_ACTION=continue INSTALL_NONINTERACTIVE=1 bash "$entry"
 EOF
   chmod +x "$shortcut"
   cp "$shortcut" "$path_shortcut" 2>/dev/null || true
 
-  cat >"$home_shortcut" <<'EOF'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-base="$HOME/xinguang-ai-light"
-mkdir -p "$base"
-home_name="${1:-}"
-home_id="${2:-}"
-if [[ -z "$home_name" ]]; then
-  printf '请选择馨光设备所在家庭。\n' >&2
-  exit 1
-fi
-umask 077
-{
-  printf 'XINGUANG_TARGET_HOME=%q\n' "$home_name"
-  printf 'XINGUANG_TARGET_HOME_ID=%q\n' "$home_id"
-} >"$base/target-home.env"
-chmod 600 "$base/target-home.env" 2>/dev/null || true
-EOF
-  chmod +x "$home_shortcut"
-  cp "$home_shortcut" "$path_home_shortcut" 2>/dev/null || true
-
-  write_xinguang_workspace_rules || log "警告：馨光对话规则写入失败，不影响主流程"
-  state_mark XINGUANG_SKILL_INSTALLER_READY
+  state_mark XINGUANG_SKILL_PREINSTALL_STARTED
+  TARGET="$main" INSTALL_ACTION=preinstall INSTALL_NONINTERACTIVE=1 bash "$entry" preinstall ||
+    die "馨光 Skill 安装失败"
+  state_mark XINGUANG_SKILL_INSTALL_DONE
+  state_mark XINGUANG_SKILL_PREINSTALL_DONE
 
   cat >"$install_dir/灯光测试提示.txt" <<'EOF'
-米家账号绑定并选择家庭后，请发送「安装馨光 Skill」。
-馨光 Skill 安装完成后，可以测试灯光：
+米家账号绑定并选择家庭后，可以直接测试灯光：
 客厅来个马尔代夫的海边日落
 EOF
 }
@@ -2284,7 +1916,6 @@ run_full_deploy() {
   local step_start
   TOTAL_STEPS=6
   state_init
-  state_mark_silent INSTALL_STARTED
   print_mode_summary "full"
   log "Starting Xingguang AI lighting install (script $SCRIPT_VERSION)"
   log "Install started at: $(date -Is)"
@@ -2343,8 +1974,8 @@ run_full_deploy() {
   else
     step_start="$(date +%s)"
     step_start_msg 5 "米家账号绑定提示"
-    print_step_note "预置馨光 Skill 本地安装器，并提示后续绑定米家账号。"
-    prepare_xinguang_skill_installer
+    print_step_note "安装馨光 Skill，并提示后续绑定米家账号。"
+    preinstall_xinguang_skill
     prompt_mihome_binding
     step_done_msg 5 "米家账号绑定提示" "$step_start"
     log_timing_since "米家账号绑定提示" "$step_start"

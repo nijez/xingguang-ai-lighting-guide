@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-26.14"
-INSTALLER_VERSION="2026-06-26.14"
+ENTRY_VERSION="2026-06-26.9"
+INSTALLER_VERSION="2026-06-26.9"
 TARGET="${TARGET:-/tmp/xinguang-skill-install.sh}"
 ACTION="${1:-${INSTALL_ACTION:-install}}"
 
@@ -13,7 +13,7 @@ download_installer() {
 
   local url
   for url in \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/staging/2026-06-25.20/install-xinguang-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh"
   do
