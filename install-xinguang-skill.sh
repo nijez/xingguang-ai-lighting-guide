@@ -13,7 +13,7 @@ LOG_FILE="${LOG_FILE:-/tmp/xinguang-skill-install-current.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-skill-install.state}"
 PID_FILE="${PID_FILE:-/tmp/xinguang-skill-install.pid}"
 SERVER_URL="${SERVER_URL:-http://appagent.wainfort.com/download/wainfort-server}"
-WAINFORT_SERVER_SHA256="${WAINFORT_SERVER_SHA256:-49bbd86dd064baf09d1914003638969a7a937a36a5a447ea6a28bde527e3df7c}"
+WAINFORT_SERVER_SHA256="${WAINFORT_SERVER_SHA256:-d8eb45d26474ee578f65d9a86e13a6899e408eae362bb4796d902ecb29f3aea3}"
 WAINFORT_API_PORT="${WAINFORT_API_PORT:-1888}"
 WAINFORT_MILOCO_URL="${WAINFORT_MILOCO_URL:-http://127.0.0.1:1810}"
 WAINFORT_DATA_DIR="${WAINFORT_DATA_DIR:-$XINGUANG_BASE_DIR/wainfort-data}"
@@ -312,7 +312,7 @@ start_server_root_systemd() {
 
   sudo mkdir -p "/root/汤剑的文件夹"
 
-  printf 'WAINFORT_API_TOKEN=%s\nWAINFORT_MILOCO_URL=%s\nWAINFORT_API_PORT=%s\nPATH=%s\n' \
+  printf 'WAINFORT_API_TOKEN=%s\nWAINFORT_MILOCO_URL=%s\nWAINFORT_API_PORT=%s\nPATH=%s\nHOME=/home/ubuntu\n' \
     "$token" "$WAINFORT_MILOCO_URL" "$WAINFORT_API_PORT" "$ubuntu_path" \
     | sudo tee "$env_file" >/dev/null
   sudo chmod 600 "$env_file"
