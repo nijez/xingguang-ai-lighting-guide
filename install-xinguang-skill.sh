@@ -310,10 +310,15 @@ start_server_root_systemd() {
   [[ -z "$token" ]] && token="$(grep -E '^WAINFORT_API_TOKEN=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
   [[ -z "$token" ]] && die "无法读取灯光服务 Token，请联系工作人员处理"
 
+  local miloco_token="${WAINFORT_MILOCO_TOKEN:-}"
+  if [[ -z "$miloco_token" ]]; then
+    miloco_token="$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.openclaw/miloco/config.json'))); print(d['server']['token'])" 2>/dev/null || true)"
+  fi
+
   sudo mkdir -p "/root/汤剑的文件夹"
 
-  printf 'WAINFORT_API_TOKEN=%s\nWAINFORT_MILOCO_URL=%s\nWAINFORT_API_PORT=%s\nPATH=%s\nHOME=/home/ubuntu\n' \
-    "$token" "$WAINFORT_MILOCO_URL" "$WAINFORT_API_PORT" "$ubuntu_path" \
+  printf 'WAINFORT_API_TOKEN=%s\nWAINFORT_MILOCO_URL=%s\nWAINFORT_MILOCO_TOKEN=%s\nWAINFORT_API_PORT=%s\nPATH=%s\nHOME=/home/ubuntu\n' \
+    "$token" "$WAINFORT_MILOCO_URL" "$miloco_token" "$WAINFORT_API_PORT" "$ubuntu_path" \
     | sudo tee "$env_file" >/dev/null
   sudo chmod 600 "$env_file"
 
