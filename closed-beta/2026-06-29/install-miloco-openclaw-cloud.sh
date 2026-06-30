@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.37"
+SCRIPT_VERSION="2026-06-25.39"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2225,6 +2225,8 @@ write_xinguang_workspace_rules() {
 
 当前封测阶段，确认、执行、恢复必须都带 `xg-preview-` 确认编号。没有确认编号的执行类请求一律进入预览或拒绝，不得真实控灯。
 
+真实执行许可只能由工作人员在交互式终端手工开启。龙虾不得自行调用 `xinguang-arm-l6b-real`，不得在用户对话中引导开启真实许可，不得替用户输入真实执行确认短语。没有一次性真实执行许可时，`xinguang-execute-light` 只能返回 dry-run 结果或拒绝真实执行。
+
 后续 L6-B 真实执行模板必须携带确认编号：
 
 `执行 xg-preview-xxxx，把门市灯柱调成低亮度暖色，只调这一台。`
@@ -2264,6 +2266,7 @@ prepare_xinguang_skill_installer() {
   local export_diag="$install_dir/xinguang-export-diagnostics"
   local preview_light="$install_dir/xinguang-preview-light"
   local confirm_light="$install_dir/xinguang-confirm-light"
+  local arm_l6b_real="$install_dir/xinguang-arm-l6b-real"
   local execute_light="$install_dir/xinguang-execute-light"
   local restore_light="$install_dir/xinguang-restore-light"
 
@@ -2333,7 +2336,12 @@ prepare_xinguang_skill_installer() {
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-confirm-light" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-confirm-light" ||
     log "警告：xinguang-confirm-light 下载失败，不影响主流程"
-  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-06-30.1"' \
+  download_versioned_file "$arm_l6b_real" 'XINGUANG_ARM_L6B_REAL_VERSION="2026-07-01.2"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-arm-l6b-real" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-arm-l6b-real" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-arm-l6b-real" ||
+    log "警告：xinguang-arm-l6b-real 下载失败，不影响主流程"
+  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.1"' \
     "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-execute-light" ||
@@ -2344,7 +2352,7 @@ prepare_xinguang_skill_installer() {
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-restore-light" ||
     log "警告：xinguang-restore-light 下载失败，不影响主流程"
 
-  for helper in "$doctor" "$panel" "$panel_sh" "$list_devices" "$test_scene" "$tail_logs" "$export_diag" "$preview_light" "$confirm_light" "$execute_light" "$restore_light"; do
+  for helper in "$doctor" "$panel" "$panel_sh" "$list_devices" "$test_scene" "$tail_logs" "$export_diag" "$preview_light" "$confirm_light" "$arm_l6b_real" "$execute_light" "$restore_light"; do
     [[ -x "$helper" ]] && cp "$helper" "$bin_dir/$(basename "$helper")" 2>/dev/null || true
   done
 

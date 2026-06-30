@@ -17,6 +17,7 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.1","date":"2026-06-29","aut
 3. 用户带 `request_id` 确认边界时，调用 `xinguang-confirm-light '<用户原文>'`，只确认，不控灯。
 4. 用户带 `request_id` 明确执行时，调用 `xinguang-execute-light '<用户原文>'`；执行工具必须自行校验一次性许可。
 5. 用户带 `request_id` 明确恢复时，调用 `xinguang-restore-light '<用户原文>'`；恢复工具必须自行校验只恢复一次。
+6. 真实执行许可只能由工作人员在交互式终端手工开启。龙虾不得自行调用 `xinguang-arm-l6b-real`，不得在用户对话中引导开启真实许可，不得替用户输入真实执行确认短语。
 6. 禁止调用 `xinguang-test-scene` 作为自然语言链路的替代执行工具。
 7. 禁止把预览说成执行结果。
 8. 如果本地工具输出包含 `XINGUANG_DIRECT_REPLY_BEGIN` / `XINGUANG_DIRECT_REPLY_END` 标记，最终回复只能使用标记之间的内容，禁止总结、改写、补充、删减、重新组织。
