@@ -347,20 +347,20 @@ server_data_dir_unsupported() {
 }
 
 start_server_root_systemd() {
-  log "检测到权限限制，切换为系统服务方式启动灯光服务"
-  state_mark ROOT_SYSTEMD_FALLBACK_STARTED
+  log "准备系统服务方式启动灯光服务"
+  state_mark WAINFORT_SYSTEMD_SETUP_STARTED
 
   local service_name="xinguang-wainfort"
-  local service_file="/etc/systemd/system/${service_name}.service"
-  local env_file="/etc/${service_name}.env"
+  local service_unit="xinguang-wainfort.service"
+  local service_file="/etc/systemd/system/xinguang-wainfort.service"
+  local env_file="/etc/xinguang-wainfort.env"
 
-  local ubuntu_path="/home/ubuntu/.local/bin:/home/ubuntu/.local/share/uv/tools/miloco-cli/bin"
+  local ubuntu_path="/home/ubuntu/.local/bin:/home/ubuntu/.local/share/uv/tools/miloco-cli/bin:/home/ubuntu/.local/share/uv/tools/miloco/bin:/home/ubuntu/.nvm/versions/node/v22.23.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   if [[ -d "$HOME/.nvm/versions/node" ]]; then
     local nvm_dir
     nvm_dir="$(find "$HOME/.nvm/versions/node" -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort -V | tail -1 || true)"
-    [[ -n "$nvm_dir" ]] && ubuntu_path="$nvm_dir/bin:$ubuntu_path"
+    [[ -n "$nvm_dir" ]] && ubuntu_path="$nvm_dir/bin:/home/ubuntu/.local/bin:/home/ubuntu/.local/share/uv/tools/miloco-cli/bin:/home/ubuntu/.local/share/uv/tools/miloco/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   fi
-  ubuntu_path="$ubuntu_path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
   local token="${WAINFORT_API_TOKEN:-}"
   [[ -z "$token" ]] && token="$(grep -E '^WAINFORT_API_TOKEN=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
@@ -371,26 +371,49 @@ start_server_root_systemd() {
 
   sudo mkdir -p "/root/汤剑的文件夹"
 
-  printf 'WAINFORT_API_TOKEN=%s\nWAINFORT_MILOCO_URL=%s\nWAINFORT_MILOCO_TOKEN=%s\nWAINFORT_API_PORT=%s\nPATH=%s\nHOME=/home/ubuntu\n' \
-    "$token" "$WAINFORT_MILOCO_URL" "$miloco_token" "$WAINFORT_API_PORT" "$ubuntu_path" \
-    | sudo tee "$env_file" >/dev/null
+  sudo tee "$env_file" >/dev/null <<EOF
+WAINFORT_API_TOKEN=$token
+WAINFORT_MILOCO_URL=$WAINFORT_MILOCO_URL
+WAINFORT_MILOCO_TOKEN=$miloco_token
+WAINFORT_API_PORT=$WAINFORT_API_PORT
+HOME=/home/ubuntu
+EOF
   sudo chmod 600 "$env_file"
+  sudo chown root:root "$env_file"
 
-  printf '[Unit]\nDescription=馨光灯光控制服务\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=%s\nEnvironmentFile=%s\nExecStart=%s\nRestart=always\nRestartSec=3\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=full\nReadWritePaths=/root /home/ubuntu %s %s /tmp\n\n[Install]\nWantedBy=multi-user.target\n' \
-    "$INSTALL_DIR" "$env_file" "$SERVER_BIN" "$INSTALL_DIR" "$XINGUANG_BASE_DIR" \
-    | sudo tee "$service_file" >/dev/null
+  sudo tee "$service_file" >/dev/null <<EOF
+[Unit]
+Description=Xinguang Wainfort Light API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$INSTALL_DIR
+EnvironmentFile=$env_file
+Environment=PATH=$ubuntu_path
+Environment=HOME=/home/ubuntu
+ExecStart=$SERVER_BIN
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo chown root:root "$service_file"
 
   sudo systemctl daemon-reload
-  sudo systemctl enable --now "${service_name}.service"
+  sudo systemctl enable xinguang-wainfort.service
+  sudo systemctl restart xinguang-wainfort.service
 
   state_mark ROOT_SYSTEMD_SERVICE_ENABLED
 
   local i
   for i in $(seq 1 30); do
-    if server_status_ok; then
-      if ! server_devices_check; then
-        die "灯光服务设备接口暂时不可用，请联系工作人员处理"
-      fi
+    if sudo systemctl is-active --quiet "$service_unit" 2>/dev/null &&
+      { ! have ss || ss -ltn 2>/dev/null | awk -v port=":$WAINFORT_API_PORT" '$4 ~ port "$" {found=1} END {exit !found}'; } &&
+      server_status_ok; then
       state_mark WAINFORT_SERVER_READY
       printf '灯光服务已就绪。\n'
       return 0
@@ -398,7 +421,9 @@ start_server_root_systemd() {
     sleep 2
   done
 
-  die "灯光服务系统服务方式启动失败，请联系工作人员处理"
+  state_mark WAINFORT_SERVER_START_FAILED
+  printf '灯光服务还没有启动成功，请联系工作人员处理。\n' >&2
+  exit 1
 }
 
 fail_server_data_dir_unsupported() {
@@ -449,98 +474,9 @@ server_supported_args() {
 start_server() {
   load_env_if_present
   printf '正在准备灯光服务。\n'
-  if sudo systemctl is-active --quiet xinguang-wainfort 2>/dev/null; then
-    log "root systemd 灯光服务已在运行"
-    state_mark SERVER_ALREADY_RUNNING
-    state_mark WAINFORT_SERVER_READY
-    printf '灯光服务已就绪。\n'
-    return 0
-  fi
-  if server_status_ok; then
-    server_debug "health check: ok before start"
-    state_mark SERVER_ALREADY_RUNNING
-    state_mark WAINFORT_SERVER_READY
-    printf '灯光服务已就绪。\n'
-    return 0
-  fi
-  if server_process_running; then
-    state_mark SERVER_ALREADY_RUNNING
-    local i
-    for i in $(seq 1 15); do
-      if server_data_dir_unsupported; then
-        fail_server_data_dir_unsupported
-      fi
-      if server_status_ok; then
-        server_debug "health check: ok from existing process"
-        state_mark SERVER_STATUS_OK
-        if ! server_devices_check; then
-          die "灯光服务设备接口暂时不可用，请联系工作人员处理"
-        fi
-        state_mark WAINFORT_SERVER_READY
-        printf '灯光服务已就绪。\n'
-        return 0
-      fi
-      sleep 2
-    done
-    state_mark WAINFORT_SERVER_START_FAILED
-    printf '灯光服务暂时无法启动，请联系工作人员处理。\n' >&2
-    exit 1
-  fi
-
   mkdir -p "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR" "$XINGUANG_BASE_DIR/tmp"
   chmod 700 "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR" "$XINGUANG_BASE_DIR/tmp" 2>/dev/null || true
-  capture_server_help
-  : >"$API_LOG"
-  local extra_args shell_args
-  shell_args="$(server_supported_args)"
-  server_debug "wainfort-server command: HOME=$XINGUANG_BASE_DIR XDG_DATA_HOME=$WAINFORT_DATA_DIR XDG_CONFIG_HOME=$WAINFORT_CONFIG_DIR XDG_CACHE_HOME=$WAINFORT_CACHE_DIR WAINFORT_DATA_DIR=$WAINFORT_DATA_DIR WAINFORT_CONFIG_DIR=$WAINFORT_CONFIG_DIR WAINFORT_CACHE_DIR=$WAINFORT_CACHE_DIR WAINFORT_LOG_DIR=$WAINFORT_LOG_DIR $SERVER_BIN $shell_args"
-  # shellcheck disable=SC2206
-  extra_args=($shell_args)
-  nohup env \
-    HOME="$XINGUANG_BASE_DIR" \
-    XDG_DATA_HOME="$WAINFORT_DATA_DIR" \
-    XDG_CONFIG_HOME="$WAINFORT_CONFIG_DIR" \
-    XDG_CACHE_HOME="$WAINFORT_CACHE_DIR" \
-    TMPDIR="$XINGUANG_BASE_DIR/tmp" \
-    WAINFORT_API_TOKEN="$WAINFORT_API_TOKEN" \
-    WAINFORT_MILOCO_URL="$WAINFORT_MILOCO_URL" \
-    WAINFORT_MILOCO_TOKEN="${WAINFORT_MILOCO_TOKEN:-}" \
-    WAINFORT_API_PORT="$WAINFORT_API_PORT" \
-    WAINFORT_DATA_DIR="$WAINFORT_DATA_DIR" \
-    WAINFORT_CONFIG_DIR="$WAINFORT_CONFIG_DIR" \
-    WAINFORT_CACHE_DIR="$WAINFORT_CACHE_DIR" \
-    WAINFORT_LOG_DIR="$WAINFORT_LOG_DIR" \
-    WAINFORT_HOME="$WAINFORT_DATA_DIR" \
-    "$SERVER_BIN" "${extra_args[@]}" >>"$API_LOG" 2>&1 &
-  printf '%s\n' "$!" >"$SERVER_PID_FILE"
-  state_mark SERVER_STARTED
-
-  local i
-  for i in $(seq 1 30); do
-    if server_data_dir_unsupported; then
-      fail_server_data_dir_unsupported
-    fi
-    if server_status_ok; then
-      server_debug "health check: ok after start"
-      state_mark SERVER_STATUS_OK
-      if ! server_devices_check; then
-        die "灯光服务设备接口暂时不可用，请联系工作人员处理"
-      fi
-      state_mark WAINFORT_SERVER_READY
-      printf '灯光服务已就绪。\n'
-      return 0
-    fi
-    sleep 2
-  done
-
-  if server_data_dir_unsupported; then
-    fail_server_data_dir_unsupported
-  fi
-
-  state_mark WAINFORT_SERVER_START_FAILED
-  server_debug "health check: failed after startup wait; see $API_LOG"
-  printf '灯光服务暂时无法启动，请联系工作人员处理。\n' >&2
-  exit 1
+  start_server_root_systemd
 }
 
 query_home_list() {
@@ -1084,7 +1020,7 @@ record_light_result() {
 print_status() {
   load_env_if_present
   local ready=0
-  if { server_status_ok || server_process_running; } &&
+  if server_status_ok &&
     { [[ -f "$LOCAL_SKILL_FILE" ]] || status_file_has SKILL_INSTALL_DONE; }; then
     ready=1
   fi
