@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.36"
+SCRIPT_VERSION="2026-06-25.37"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2686,6 +2686,8 @@ run_full_deploy() {
 
   if state_has STEP_5_DONE; then
     step_skip_msg 5 "米家账号绑定提示" "state already has STEP_5_DONE"
+    log "刷新馨光本地工具和对话规则"
+    prepare_xinguang_skill_installer
   else
     step_start="$(date +%s)"
     step_start_msg 5 "米家账号绑定提示"
