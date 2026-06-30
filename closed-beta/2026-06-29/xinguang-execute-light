@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.2"
+XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.3"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
 ENV_PRIMARY="/etc/xinguang-wainfort.env"
@@ -155,9 +155,13 @@ real_permit = load(real_permit_path)
 
 if pending.get("request_id") == request_id:
     pending["status"] = "real_attempt_blocked"
+    pending["confirmed"] = True
     pending["executed"] = False
-    pending["real_attempted_at"] = now.isoformat()
-    pending["real_block_reason"] = reason
+    pending["restored"] = False
+    pending["blocked_at"] = now.isoformat()
+    pending["block_reason"] = reason
+    pending["execute_permit_used"] = True
+    pending["real_permit_used"] = True
     save(pending_path, pending)
 
 if permit.get("request_id") == request_id:
@@ -212,9 +216,12 @@ except Exception:
     real_permit = {}
 
 if pending.get("request_id") == request_id:
+    pending["confirmed"] = True
     pending["executed"] = True
     pending["executed_at"] = now.isoformat()
     pending["status"] = "executed_once"
+    pending["restored"] = False
+    pending["restore_permit_created"] = True
     with open(pending_path, "w", encoding="utf-8") as f:
         json.dump(pending, f, ensure_ascii=False, indent=2)
         f.write("\n")

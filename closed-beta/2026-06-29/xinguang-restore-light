@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_RESTORE_LIGHT_VERSION="2026-06-30.1"
+XINGUANG_RESTORE_LIGHT_VERSION="2026-07-01.1"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
 ENV_PRIMARY="/etc/xinguang-wainfort.env"
@@ -12,7 +12,7 @@ REQUEST_LOG="$BASE_DIR/request-log.jsonl"
 TARGET_NAME="门市 / 馨光RGBCW幻彩灯柱2"
 API_PORT="${WAINFORT_API_PORT:-1888}"
 API_TOKEN="${WAINFORT_API_TOKEN:-}"
-EXECUTION_MODE="${XINGUANG_L6B_EXECUTION_MODE:-dry-run}"
+EXECUTION_MODE="${XINGUANG_L6B_EXECUTION_MODE:-auto}"
 
 direct_reply_begin() {
   printf '<!-- XINGUANG_DIRECT_REPLY_BEGIN copy-exactly -->\n'
@@ -94,7 +94,7 @@ except Exception:
 if restore_expires < now:
     fail("恢复许可已过期，未执行恢复。")
 
-print(json.dumps({"ok": True, "request_id": request_id, "dry_run": mode != "real"}, ensure_ascii=False))
+print(json.dumps({"ok": True, "request_id": request_id, "dry_run": mode == "dry-run"}, ensure_ascii=False))
 PY
 }
 
@@ -139,7 +139,7 @@ entry = {
     "target": "门市 / 馨光RGBCW幻彩灯柱2",
     "scope": "single_device_only",
     "mode": mode,
-    "service_called": mode == "real" and http_code not in ("", "000"),
+    "service_called": http_code not in ("", "000"),
     "http_code": http_code,
     "response_summary": body,
 }
@@ -170,11 +170,15 @@ main() {
   fi
 
   if [[ "$EXECUTION_MODE" != "real" ]]; then
-    printf '已通过恢复前检查。\n'
-    printf 'would_restore=true\n'
-    printf '当前为 dry-run 验证模式，未执行真实恢复。\n'
-    direct_reply_end
-    return 0
+    local is_dry_run
+    is_dry_run="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("dry_run", True))' <<<"$validation" 2>/dev/null || printf 'True')"
+    if [[ "$is_dry_run" == "True" ]]; then
+      printf '已通过恢复前检查。\n'
+      printf 'would_restore=true\n'
+      printf '当前为 dry-run 验证模式，未执行真实恢复。\n'
+      direct_reply_end
+      return 0
+    fi
   fi
 
   load_env

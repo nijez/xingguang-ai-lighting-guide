@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.39"
+SCRIPT_VERSION="2026-06-25.40"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2343,12 +2343,12 @@ prepare_xinguang_skill_installer() {
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-arm-l6b-real" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-arm-l6b-real" ||
     log "警告：xinguang-arm-l6b-real 下载失败，不影响主流程"
-  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.2"' \
+  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.3"' \
     "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-execute-light" ||
     log "警告：xinguang-execute-light 下载失败，不影响主流程"
-  download_versioned_file "$restore_light" 'XINGUANG_RESTORE_LIGHT_VERSION="2026-06-30.1"' \
+  download_versioned_file "$restore_light" 'XINGUANG_RESTORE_LIGHT_VERSION="2026-07-01.1"' \
     "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-restore-light" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-restore-light" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-restore-light" ||
