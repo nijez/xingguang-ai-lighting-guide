@@ -2329,12 +2329,15 @@ set -Eeuo pipefail
 
 tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-bind.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
+bind_timeout="${XINGUANG_BIND_TIMEOUT_SECONDS:-12}"
 
 if command -v miloco-cli >/dev/null 2>&1; then
-  miloco-cli account bind >"$tmp" 2>&1 || true
+  # 该命令会先输出授权链接，然后继续等待授权码。
+  # 这里模拟用户中断并断开 stdin，避免吞掉调用方后续输入。
+  timeout -s INT -k 2s "${bind_timeout}s" miloco-cli account bind </dev/null >"$tmp" 2>&1 || true
 fi
 
-url="$(grep -Eo 'https://[^[:space:])"]+' "$tmp" | head -n 1 || true)"
+url="$(tr -d '\r' <"$tmp" | grep -Eo 'https://account\.xiaomi\.com/oauth2/authorize[^[:space:])"]+' | head -n 1 || true)"
 if [[ -z "$url" ]]; then
   printf '米家授权链接暂时无法生成，请联系工作人员处理。\n'
   exit 0
