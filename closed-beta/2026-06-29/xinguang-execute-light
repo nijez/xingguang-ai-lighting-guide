@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.1"
+XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.2"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/wainfort-light}"
 ENV_PRIMARY="/etc/xinguang-wainfort.env"
@@ -14,7 +14,7 @@ REQUEST_LOG="$BASE_DIR/request-log.jsonl"
 TARGET_NAME="门市 / 馨光RGBCW幻彩灯柱2"
 API_PORT="${WAINFORT_API_PORT:-1888}"
 API_TOKEN="${WAINFORT_API_TOKEN:-}"
-EXECUTION_MODE="${XINGUANG_L6B_EXECUTION_MODE:-dry-run}"
+EXECUTION_MODE="${XINGUANG_L6B_EXECUTION_MODE:-auto}"
 
 direct_reply_begin() {
   printf '<!-- XINGUANG_DIRECT_REPLY_BEGIN copy-exactly -->\n'
@@ -97,36 +97,94 @@ except Exception:
 if execute_expires < now or permit_expires < now:
     fail("执行许可已过期，未执行。")
 
-if mode == "real":
+real_ready = False
+if mode != "dry-run":
     try:
         with open(real_permit_path, "r", encoding="utf-8") as f:
             real_permit = json.load(f)
     except Exception:
-        fail("真实执行许可未开启，未执行真实灯光控制。")
-    if real_permit.get("request_id") != request_id:
-        fail("真实执行许可不匹配，未执行真实灯光控制。")
-    if real_permit.get("target") != target_name:
-        fail("真实执行许可目标不匹配，未执行真实灯光控制。")
-    if real_permit.get("scope") != "single_device_only":
-        fail("真实执行许可范围不安全，未执行真实灯光控制。")
-    if real_permit.get("action") != "execute_real":
-        fail("真实执行许可类型不匹配，未执行真实灯光控制。")
-    if real_permit.get("used") is True:
-        fail("真实执行许可已使用，未重复执行。")
-    try:
-        real_expires = datetime.datetime.fromisoformat(str(real_permit.get("expires_at", "")))
-    except Exception:
-        fail("真实执行许可已失效，未执行真实灯光控制。")
-    if real_expires < now:
-        fail("真实执行许可已过期，未执行真实灯光控制。")
+        real_permit = None
+    if isinstance(real_permit, dict):
+        try:
+            real_expires = datetime.datetime.fromisoformat(str(real_permit.get("expires_at", "")))
+        except Exception:
+            real_expires = None
+        real_ready = (
+            real_permit.get("request_id") == request_id
+            and real_permit.get("target") == target_name
+            and real_permit.get("scope") == "single_device_only"
+            and real_permit.get("action") == "execute_real"
+            and real_permit.get("used") is not True
+            and real_expires is not None
+            and real_expires >= now
+        )
 
 print(json.dumps({
     "ok": True,
     "request_id": request_id,
     "effect": pending.get("effect") or "低亮度暖色",
     "original_text": pending.get("original_text") or "",
-    "dry_run": mode != "real",
+    "dry_run": not real_ready,
 }, ensure_ascii=False))
+PY
+}
+
+mark_real_attempt_blocked() {
+  local request_id="$1" reason="$2"
+  python3 - "$PENDING_FILE" "$PERMIT_FILE" "$REAL_PERMIT_FILE" "$REQUEST_LOG" "$request_id" "$reason" "$EXECUTION_MODE" <<'PY'
+import datetime, json, os, sys
+
+pending_path, permit_path, real_permit_path, log_path, request_id, reason, mode = sys.argv[1:8]
+now = datetime.datetime.now().astimezone()
+
+def load(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save(path, value):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(value, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+pending = load(pending_path)
+permit = load(permit_path)
+real_permit = load(real_permit_path)
+
+if pending.get("request_id") == request_id:
+    pending["status"] = "real_attempt_blocked"
+    pending["executed"] = False
+    pending["real_attempted_at"] = now.isoformat()
+    pending["real_block_reason"] = reason
+    save(pending_path, pending)
+
+if permit.get("request_id") == request_id:
+    permit["used"] = True
+    permit["used_at"] = now.isoformat()
+    permit["used_reason"] = "real_attempt_blocked"
+    save(permit_path, permit)
+
+if real_permit.get("request_id") == request_id:
+    real_permit["used"] = True
+    real_permit["used_at"] = now.isoformat()
+    real_permit["used_reason"] = "real_attempt_blocked"
+    save(real_permit_path, real_permit)
+
+entry = {
+    "ts": now.isoformat(),
+    "request_id": request_id,
+    "stage": "l6b_execute_preflight_blocked",
+    "target": "门市 / 馨光RGBCW幻彩灯柱2",
+    "scope": "single_device_only",
+    "mode": mode,
+    "executed": False,
+    "block_reason": reason,
+}
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+with open(log_path, "a", encoding="utf-8") as f:
+    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 PY
 }
 
@@ -202,7 +260,7 @@ entry = {
     "target": "门市 / 馨光RGBCW幻彩灯柱2",
     "scope": "single_device_only",
     "mode": mode,
-    "service_called": mode == "real" and http_code not in ("", "000"),
+    "service_called": True,
     "http_code": http_code,
     "response_summary": body,
 }
@@ -233,7 +291,10 @@ main() {
     return 0
   fi
 
-  if [[ "$EXECUTION_MODE" != "real" ]]; then
+  local is_dry_run
+  is_dry_run="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("dry_run", True))' <<<"$validation" 2>/dev/null || printf 'True')"
+
+  if [[ "$is_dry_run" == "True" ]]; then
     printf '已通过执行前检查。\n'
     printf 'would_execute=true\n'
     printf '当前为 dry-run 验证模式，未执行真实灯光控制。\n'
@@ -243,13 +304,17 @@ main() {
 
   load_env
   if [[ -z "$API_TOKEN" ]]; then
-    printf '灯光服务暂时无法执行，请联系工作人员处理。\n'
+    mark_real_attempt_blocked "$request_id" "missing_api_token"
+    printf '已进入真实执行校验。\n'
+    printf '灯光服务当前不可用，未执行真实灯光控制。\n'
     direct_reply_end
     return 0
   fi
 
   if ! ss -ltn 2>/dev/null | grep -qE "[:.]$API_PORT\\b"; then
-    printf '灯光服务暂时无法执行，请联系工作人员处理。\n'
+    mark_real_attempt_blocked "$request_id" "service_port_not_listening"
+    printf '已进入真实执行校验。\n'
+    printf '灯光服务当前不可用，未执行真实灯光控制。\n'
     direct_reply_end
     return 0
   fi
@@ -259,7 +324,9 @@ main() {
     -H "Authorization: Bearer $API_TOKEN" \
     "http://127.0.0.1:$API_PORT/api/status" 2>/dev/null || true)"
   if [[ "$status_code" != "200" ]]; then
-    printf '灯光服务暂时无法执行，请联系工作人员处理。\n'
+    mark_real_attempt_blocked "$request_id" "status_check_failed"
+    printf '已进入真实执行校验。\n'
+    printf '灯光服务当前不可用，未执行真实灯光控制。\n'
     direct_reply_end
     return 0
   fi
@@ -270,7 +337,9 @@ main() {
     "http://127.0.0.1:$API_PORT/api/devices" 2>/dev/null || true)"
   if [[ "$devices_code" != "200" ]] || ! grep -q '馨光RGBCW幻彩灯柱2' "$devices_file"; then
     rm -f "$devices_file"
-    printf '目标灯光设备暂时无法确认，请联系工作人员处理。\n'
+    mark_real_attempt_blocked "$request_id" "target_device_not_confirmed"
+    printf '已进入真实执行校验。\n'
+    printf '目标灯光设备暂时无法确认，未执行真实灯光控制。\n'
     direct_reply_end
     return 0
   fi
@@ -294,7 +363,9 @@ main() {
     printf '已发送门市灯柱低亮度暖色测试。\n'
     printf '请现场观察 5-10 秒，只确认门市灯柱是否变化。\n'
   else
-    printf '灯光请求未完成，请联系工作人员处理。\n'
+    mark_real_attempt_blocked "$request_id" "generate_request_failed"
+    printf '已进入真实执行校验。\n'
+    printf '灯光请求未完成，未执行真实灯光控制。\n'
   fi
   direct_reply_end
 }

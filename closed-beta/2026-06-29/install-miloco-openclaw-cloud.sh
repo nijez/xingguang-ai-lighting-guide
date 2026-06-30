@@ -2225,7 +2225,9 @@ write_xinguang_workspace_rules() {
 
 当前封测阶段，确认、执行、恢复必须都带 `xg-preview-` 确认编号。没有确认编号的执行类请求一律进入预览或拒绝，不得真实控灯。
 
-真实执行许可只能由工作人员在交互式终端手工开启。龙虾不得自行调用 `xinguang-arm-l6b-real`，不得在用户对话中引导开启真实许可，不得替用户输入真实执行确认短语。没有一次性真实执行许可时，`xinguang-execute-light` 只能返回 dry-run 结果或拒绝真实执行。
+真实执行许可只能由工作人员在交互式终端手工开启。龙虾不得自行调用 `xinguang-arm-l6b-real`，不得在用户对话中引导开启真实许可，不得替用户输入真实执行确认短语。
+
+真实执行只由工作人员交互式终端开启的一次性真实许可决定。龙虾不得设置环境变量，不得开启真实许可。没有有效真实许可时，`xinguang-execute-light` 只能返回 dry-run；有有效真实许可时，`xinguang-execute-light` 进入真实执行前检查，若灯光服务不可用则阻断，不执行。
 
 后续 L6-B 真实执行模板必须携带确认编号：
 
@@ -2341,7 +2343,7 @@ prepare_xinguang_skill_installer() {
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-arm-l6b-real" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-arm-l6b-real" ||
     log "警告：xinguang-arm-l6b-real 下载失败，不影响主流程"
-  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.1"' \
+  download_versioned_file "$execute_light" 'XINGUANG_EXECUTE_LIGHT_VERSION="2026-07-01.2"' \
     "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-execute-light" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-execute-light" ||
