@@ -8,6 +8,14 @@ ENV_PRIMARY="/etc/xinguang-wainfort.env"
 ENV_FALLBACK="$INSTALL_DIR/.env"
 API_PORT="${WAINFORT_API_PORT:-1888}"
 API_TOKEN="${WAINFORT_API_TOKEN:-}"
+STATUS_TMP=""
+DEVICES_TMP=""
+
+cleanup() {
+  [[ -n "${STATUS_TMP:-}" ]] && rm -f "$STATUS_TMP"
+  [[ -n "${DEVICES_TMP:-}" ]] && rm -f "$DEVICES_TMP"
+}
+trap cleanup EXIT
 
 load_env() {
   local env_file=""
@@ -39,12 +47,11 @@ main() {
     exit 2
   fi
 
-  local status_tmp devices_tmp status_code devices_code
-  status_tmp="$(mktemp)"
-  devices_tmp="$(mktemp)"
-  trap 'rm -f "$status_tmp" "$devices_tmp"' EXIT
+  local status_code devices_code
+  STATUS_TMP="$(mktemp)"
+  DEVICES_TMP="$(mktemp)"
 
-  status_code="$(request /api/status "$status_tmp")"
+  status_code="$(request /api/status "$STATUS_TMP")"
   case "$status_code" in
     200) ;;
     401|403)
@@ -61,7 +68,7 @@ main() {
       ;;
   esac
 
-  devices_code="$(request /api/devices "$devices_tmp")"
+  devices_code="$(request /api/devices "$DEVICES_TMP")"
   case "$devices_code" in
     200) ;;
     401|403)
@@ -82,7 +89,7 @@ main() {
       ;;
   esac
 
-  python3 - "$devices_tmp" <<'PY'
+  python3 - "$DEVICES_TMP" <<'PY'
 import json, sys
 path = sys.argv[1]
 try:
