@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_CLI_VERSION="2026-07-02.5"
+XINGUANG_CLI_VERSION="2026-07-02.6"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 BIN_DIR="${XINGUANG_BIN_DIR:-$HOME/.local/bin}"
 INSTALL_COMMAND="curl -fsSL https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-light.sh -o install-xinguang-ai-light-closed-beta.sh && bash install-xinguang-ai-light-closed-beta.sh"
@@ -12,10 +12,10 @@ SKILL_MAIN="$BASE_DIR/install-xinguang-skill.sh"
 SKILL_SHORTCUT="$BIN_DIR/xinguang-install-skill"
 LOG_EXPORT_DIR="$BASE_DIR/diagnostics"
 
-FIRST_STAGE_ENTRY_VERSION="2026-06-25.46"
-FIRST_STAGE_MAIN_VERSION="2026-06-25.46"
-SECOND_STAGE_ENTRY_VERSION="2026-06-26.18"
-SECOND_STAGE_MAIN_VERSION="2026-06-26.18"
+FIRST_STAGE_ENTRY_VERSION="2026-06-25.47"
+FIRST_STAGE_MAIN_VERSION="2026-06-25.47"
+SECOND_STAGE_ENTRY_VERSION="2026-06-26.19"
+SECOND_STAGE_MAIN_VERSION="2026-06-26.19"
 
 print_help() {
   cat <<EOF

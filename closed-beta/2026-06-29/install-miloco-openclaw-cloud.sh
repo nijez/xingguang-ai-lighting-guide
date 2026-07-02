@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.46"
+SCRIPT_VERSION="2026-06-25.47"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -43,8 +43,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 LOG_FILE="${LOG_FILE:-$XINGUANG_LOG_DIR/openclaw-miloco-install-current.log}"
 STATE_FILE="${STATE_FILE:-$XINGUANG_STATE_DIR/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.18}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.18}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.19}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.19}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -2224,40 +2224,28 @@ prepare_xinguang_skill_installer() {
   mkdir -p "$install_dir" "$bin_dir"
 
   download_versioned_file "$base_entry" "ENTRY_VERSION=\"$SCRIPT_VERSION\"" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-light.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-xinguang-ai-light.sh" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-ai-light.sh" ||
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-light.sh" ||
     die
 
   download_versioned_file "$base_main" "SCRIPT_VERSION=\"$SCRIPT_VERSION\"" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" ||
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" ||
     die
 
   download_versioned_file "$entry" "ENTRY_VERSION=\"$XINGUANG_SKILL_ENTRY_VERSION\"" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-skill.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-xinguang-ai-skill.sh" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-ai-skill.sh" ||
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-skill.sh" ||
     die
 
   download_versioned_file "$main" "XINGUANG_SKILL_INSTALLER_VERSION=\"$XINGUANG_SKILL_INSTALLER_VERSION\"" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-skill.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-xinguang-skill.sh" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-skill.sh" ||
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-skill.sh" ||
     die
 
   download_versioned_file "$version_file" "\"base_installer\": \"${SCRIPT_VERSION}\"" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/VERSION.json" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/VERSION.json" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/VERSION.json" ||
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/VERSION.json" ||
     log "警告：VERSION.json 下载失败，不影响主流程"
   chmod 644 "$version_file" 2>/dev/null || true
 
-  download_versioned_file "$xinguang_cli" 'XINGUANG_CLI_VERSION="2026-07-02.5"' \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang" ||
+  download_versioned_file "$xinguang_cli" 'XINGUANG_CLI_VERSION="2026-07-02.6"' \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang" ||
     log "警告：xinguang 维护入口下载失败，不影响主流程"
 
   for helper in "$xinguang_cli"; do

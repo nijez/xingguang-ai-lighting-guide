@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.18"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.19"
 XINGUANG_SKILL_VERSION="4.0.1"
 SKILL_NAME="wainfort-ai-lighting-run"
 SKILL_COMPANY="深圳市馨光智能物联有限公司"
@@ -27,7 +27,7 @@ LIGHT_PHYSICAL_RESULT="${LIGHT_PHYSICAL_RESULT:-}"
 LIGHT_TEST_MODE="${LIGHT_TEST_MODE:-single-shot}"
 LIGHT_TEST_UNSTABLE="${LIGHT_TEST_UNSTABLE:-0}"
 
-SKILL_URLS="${SKILL_URLS:-https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/skills/wainfort-ai-lighting-run/SKILL.md https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/skills/wainfort-ai-lighting-run/SKILL.md https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/skills/wainfort-ai-lighting-run/SKILL.md https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/wainfort-ai-lighting-run-skill.txt}"
+SKILL_URLS="${SKILL_URLS:-https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/skills/wainfort-ai-lighting-run/SKILL.md}"
 
 ENV_FILE="$INSTALL_DIR/.env"
 SERVER_BIN="$INSTALL_DIR/wainfort-server"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-25.46"
-INSTALLER_VERSION="2026-06-25.46"
+ENTRY_VERSION="2026-06-25.47"
+INSTALLER_VERSION="2026-06-25.47"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 TARGET="${TARGET:-$BASE_DIR/install-cache/install-miloco-openclaw-cloud.sh}"
 STATE_FILE="${STATE_FILE:-$BASE_DIR/state/xinguang-light-install.state}"
@@ -19,9 +19,7 @@ download_installer() {
 
   local url
   for url in \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh"
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-miloco-openclaw-cloud.sh"
   do
     if curl -fsSL "$url" -o "$tmp" &&
       grep -q "SCRIPT_VERSION=\"$INSTALLER_VERSION\"" "$tmp"; then
