@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-26.17"
-INSTALLER_VERSION="2026-06-26.17"
+ENTRY_VERSION="2026-06-26.18"
+INSTALLER_VERSION="2026-06-26.18"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 TARGET="${TARGET:-$BASE_DIR/install-cache/install-xinguang-skill.sh}"
 ACTION="${1:-${INSTALL_ACTION:-install}}"
@@ -16,9 +16,9 @@ download_installer() {
 
   local url
   for url in \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-skill.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-xinguang-skill.sh"
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/install-xinguang-skill.sh" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-skill.sh"
   do
     if curl -fsSL "$url" -o "$tmp" &&
       grep -q "XINGUANG_SKILL_INSTALLER_VERSION=\"$INSTALLER_VERSION\"" "$tmp"; then

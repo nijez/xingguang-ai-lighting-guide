@@ -4,16 +4,16 @@
 
 当前封测版本：
 
-- 第一阶段入口：2026-06-25.45
-- 第一阶段主脚本：2026-06-25.45
-- 第二阶段入口：2026-06-26.17
-- 第二阶段主脚本：2026-06-26.17
+- 第一阶段入口：2026-06-25.46
+- 第一阶段主脚本：2026-06-25.46
+- 第二阶段入口：2026-06-26.18
+- 第二阶段主脚本：2026-06-26.18
 - Skill：4.0.1
 
 终端安装命令：
 
 ```bash
-curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-ai-light.sh -o install-xinguang-ai-light-closed-beta.sh && bash install-xinguang-ai-light-closed-beta.sh
+curl -fsSL https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-light.sh -o install-xinguang-ai-light-closed-beta.sh && bash install-xinguang-ai-light-closed-beta.sh
 ```
 
 状态查询：
