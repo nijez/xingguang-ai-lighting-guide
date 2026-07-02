@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+XINGUANG_CLI_VERSION="2026-07-02.4"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+BIN_DIR="${XINGUANG_BIN_DIR:-$HOME/.local/bin}"
+INSTALL_COMMAND="curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-ai-light.sh -o install-xinguang-ai-light-closed-beta.sh && bash install-xinguang-ai-light-closed-beta.sh"
+LIGHT_ENTRY="$BASE_DIR/install-xinguang-ai-light.sh"
+LIGHT_MAIN="$BASE_DIR/install-miloco-openclaw-cloud.sh"
+SKILL_ENTRY="$BASE_DIR/install-xinguang-ai-skill.sh"
+SKILL_MAIN="$BASE_DIR/install-xinguang-skill.sh"
+SKILL_SHORTCUT="$BIN_DIR/xinguang-install-skill"
+LOG_EXPORT_DIR="$BASE_DIR/diagnostics"
+
+FIRST_STAGE_ENTRY_VERSION="2026-06-25.45"
+FIRST_STAGE_MAIN_VERSION="2026-06-25.45"
+SECOND_STAGE_ENTRY_VERSION="2026-06-26.17"
+SECOND_STAGE_MAIN_VERSION="2026-06-26.17"
+
+print_help() {
+  cat <<EOF
+馨光 AI 设计灯光 · 维护面板 $XINGUANG_CLI_VERSION
+
+用法：
+  xinguang                 打开维护菜单
+  xinguang status          查看安装维护状态
+  xinguang logs            查看脱敏安装日志
+  xinguang logs --export   导出脱敏日志包
+
+维护命令：
+  xinguang system reinstall
+  xinguang openclaw reinstall|repair
+  xinguang connector reinstall
+  xinguang skill reinstall
+EOF
+}
+
+exists_state() {
+  local path="$1"
+  if [[ -x "$path" ]]; then
+    printf '存在，可执行'
+  elif [[ -f "$path" ]]; then
+    printf '存在'
+  else
+    printf '不存在'
+  fi
+}
+
+bool_state() {
+  if "$@" >/dev/null 2>&1; then
+    printf '存在'
+  else
+    printf '不存在'
+  fi
+}
+
+service_state() {
+  local state
+  state="$(systemctl --user is-active openclaw-gateway.service 2>/dev/null || true)"
+  case "$state" in
+    active) printf '运行中' ;;
+    inactive|failed) printf '未运行' ;;
+    *) printf '未确认' ;;
+  esac
+}
+
+component_state() {
+  local pattern="$1"
+  if pgrep -u "$(id -u)" -f "$pattern" >/dev/null 2>&1; then
+    printf '运行中'
+  else
+    printf '未运行'
+  fi
+}
+
+print_fact() {
+  printf '%s：%s\n' "$1" "$2"
+}
+
+ensure_main_installer() {
+  if [[ -x "$LIGHT_MAIN" ]]; then
+    return 0
+  fi
+  printf '尚未安装基础环境。\n' >&2
+  printf '请先运行终端一键安装命令：\n%s\n' "$INSTALL_COMMAND" >&2
+  return 1
+}
+
+run_first_stage_action() {
+  local action="$1"
+  ensure_main_installer || return 1
+  RUN_CONTEXT=terminal_installer \
+    DEPLOY_SUPERVISOR=0 \
+    INSTALL_ACTION="$action" \
+    RUN_SYSTEM_UPGRADE=0 \
+    OPENCLAW_UPDATE=auto \
+    INSTALL_EXTRA_PLUGINS=0 \
+    INSTALL_NONINTERACTIVE=1 \
+    bash "$LIGHT_MAIN"
+}
+
+ask_user_to_continue() {
+  local message="$1"
+  printf '%s\n' "$message"
+  printf '请输入“确认”继续，或直接回车取消：'
+  local answer
+  IFS= read -r answer || return 1
+  [[ "$answer" == "确认" ]]
+}
+
+safe_log_filter() {
+  awk '
+    function safe(line) {
+      if (line == "") return 1
+      if (line == "开始安装，请稍候。") return 1
+      if (line ~ /^\[[0-9][0-9]?[0-9]?%\] 基础环境安装完成。$/) return 1
+      if (line ~ /^\[已用 [0-9][0-9]:[0-9][0-9]\] [0-9][0-9]?[0-9]?% 正在/) return 1
+      if (line ~ /^下一步：$/) return 1
+      if (line ~ /^请回到龙虾/) return 1
+      if (line ~ /^安装未完成，请联系工作人员处理。$/) return 1
+      if (line ~ /^馨光 AI 设计灯光/) return 1
+      if (line ~ /^(系统环境|龙虾 \(OpenClaw\)|灯光连接组件|馨光 Skill 安装器)$/) return 1
+      if (line ~ /^(工作目录|本地命令目录|基础下载工具|脚本运行环境|命令状态|后台服务|组件命令|连接服务|第二阶段入口|第二阶段主脚本|本地快捷命令|目标家庭配置)：(存在|不存在|运行中|未运行|未确认|存在，可执行)$/) return 1
+      return 0
+    }
+    {
+      if (safe($0)) {
+        print
+      } else {
+        print "[已隐藏敏感行]"
+      }
+    }
+  '
+}
+
+known_logs() {
+  printf '%s\n' \
+    "$BASE_DIR/logs/xinguang-light-install-current.log" \
+    "$BASE_DIR/logs/openclaw-miloco-install-current.log" \
+    "$BASE_DIR/logs/xinguang-skill-install-current.log" \
+    "$BASE_DIR/logs/xinguang.log" \
+    "$BASE_DIR/install.log" \
+    "$BASE_DIR/xinguang.log"
+}
+
+show_component_logs() {
+  local title="$1"
+  local found=0 log_file count=1
+  printf '\n%s · 脱敏日志\n' "$title"
+  while IFS= read -r log_file; do
+    [[ -f "$log_file" ]] || continue
+    found=1
+    printf '\n===== 日志 %s =====\n' "$count"
+    tail -n 120 "$log_file" 2>/dev/null | safe_log_filter || true
+    count=$((count + 1))
+  done < <(known_logs)
+
+  if [[ "$found" -eq 0 ]]; then
+    printf '未找到可查看的本地日志。\n'
+  fi
+}
+
+export_logs() {
+  mkdir -p "$LOG_EXPORT_DIR"
+  local work archive log_file name
+  work="$(mktemp -d "${TMPDIR:-/tmp}/xinguang-logs.XXXXXX")"
+  trap 'rm -rf "$work"' RETURN
+
+  while IFS= read -r log_file; do
+    [[ -f "$log_file" ]] || continue
+    name="$(basename "$log_file")"
+    safe_log_filter <"$log_file" >"$work/$name" || true
+  done < <(known_logs)
+
+  archive="$LOG_EXPORT_DIR/xinguang-logs-$(date +%Y%m%d%H%M%S).tar.gz"
+  if tar -czf "$archive" -C "$work" . 2>/dev/null; then
+    printf '脱敏日志包已导出：%s\n' "$archive"
+  else
+    printf '脱敏日志导出失败。\n'
+    return 1
+  fi
+}
+
+status_system() {
+  printf '\n系统环境\n'
+  print_fact "工作目录" "$([[ -d "$BASE_DIR" ]] && printf '存在' || printf '不存在')"
+  print_fact "本地命令目录" "$([[ -d "$BIN_DIR" ]] && printf '存在' || printf '不存在')"
+  print_fact "基础下载工具" "$(bool_state command -v curl)"
+  print_fact "脚本运行环境" "$(bool_state command -v bash)"
+}
+
+status_openclaw() {
+  printf '\n龙虾 (OpenClaw)\n'
+  print_fact "命令状态" "$(bool_state command -v openclaw)"
+  print_fact "后台服务" "$(service_state)"
+}
+
+status_connector() {
+  printf '\n灯光连接组件\n'
+  print_fact "组件命令" "$(bool_state command -v miloco-cli)"
+  print_fact "连接服务" "$(component_state 'miloco|openclaw-miloco')"
+}
+
+status_skill_installer() {
+  printf '\n馨光 Skill 安装器\n'
+  print_fact "第二阶段入口" "$(exists_state "$SKILL_ENTRY")"
+  print_fact "第二阶段主脚本" "$(exists_state "$SKILL_MAIN")"
+  print_fact "本地快捷命令" "$(exists_state "$SKILL_SHORTCUT")"
+  print_fact "目标家庭配置" "$([[ -f "$BASE_DIR/target-home.env" ]] && printf '存在' || printf '不存在')"
+}
+
+run_status() {
+  printf '馨光 AI 设计灯光 · 安装维护状态\n'
+  status_system
+  status_openclaw
+  status_connector
+  status_skill_installer
+}
+
+reinstall_system() {
+  ask_user_to_continue "将重新执行基础环境维护流程。" || {
+    printf '已取消。\n'
+    return 0
+  }
+  run_first_stage_action repair
+}
+
+reinstall_openclaw() {
+  ask_user_to_continue "将重新检查并修复龙虾环境。" || {
+    printf '已取消。\n'
+    return 0
+  }
+  run_first_stage_action openclaw
+}
+
+repair_openclaw() {
+  ask_user_to_continue "将尝试恢复龙虾后台服务。" || {
+    printf '已取消。\n'
+    return 0
+  }
+  run_first_stage_action restart-openclaw
+}
+
+reinstall_connector() {
+  ask_user_to_continue "将重新检查并安装灯光连接组件。" || {
+    printf '已取消。\n'
+    return 0
+  }
+  run_first_stage_action miloco
+}
+
+reinstall_skill_installer() {
+  ask_user_to_continue "将重新预置馨光 Skill 本地安装器。" || {
+    printf '已取消。\n'
+    return 0
+  }
+  run_first_stage_action repair
+}
+
+run_menu() {
+  while true; do
+    cat <<'EOF'
+
+馨光 AI 设计灯光 · 维护面板
+
+1. 查看整体状态
+2. 系统环境          重装
+3. 龙虾 (OpenClaw)   重装
+4. 龙虾 (OpenClaw)   修复服务
+5. 灯光连接组件       重装
+6. 馨光 Skill 安装器  重新预置
+7. 查看最近安装日志
+8. 导出脱敏日志包
+0. 退出
+
+请选择：
+EOF
+    local choice
+    IFS= read -r choice || return 0
+    case "$choice" in
+      1) run_status ;;
+      2) reinstall_system ;;
+      3) reinstall_openclaw ;;
+      4) repair_openclaw ;;
+      5) reinstall_connector ;;
+      6) reinstall_skill_installer ;;
+      7) show_component_logs "馨光 AI 设计灯光" ;;
+      8) export_logs ;;
+      0) return 0 ;;
+      *) printf '请输入有效选项。\n' ;;
+    esac
+  done
+}
+
+dispatch_component() {
+  local component="${1:-}" action="${2:-status}"
+  case "$component:$action" in
+    system:status) status_system ;;
+    system:reinstall) reinstall_system ;;
+    openclaw:status) status_openclaw ;;
+    openclaw:reinstall) reinstall_openclaw ;;
+    openclaw:repair) repair_openclaw ;;
+    connector:status) status_connector ;;
+    connector:reinstall) reinstall_connector ;;
+    skill:status) status_skill_installer ;;
+    skill:reinstall) reinstall_skill_installer ;;
+    *) print_help; return 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  status)
+    run_status
+    ;;
+  logs)
+    shift || true
+    case "${1:-}" in
+      --export) export_logs ;;
+      "") show_component_logs "馨光 AI 设计灯光" ;;
+      *) print_help; exit 1 ;;
+    esac
+    ;;
+  system|openclaw|connector|skill)
+    dispatch_component "$1" "${2:-status}"
+    ;;
+  -h|--help|help)
+    print_help
+    ;;
+  "")
+    run_menu
+    ;;
+  *)
+    print_help
+    exit 1
+    ;;
+esac

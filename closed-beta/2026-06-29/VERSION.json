@@ -1,8 +1,8 @@
 {
-  "base_installer": "2026-06-25.43",
-  "skill_installer": "2026-06-26.16",
+  "base_installer": "2026-06-25.45",
+  "skill_installer": "2026-06-26.17",
   "skill": "4.0.1",
   "docs": "2026-06-29",
   "release_channel": "closed-beta",
-  "notes": "maintenance panel plus dialog wrapper leak fix, not linked from public homepage"
+  "notes": "closed beta keeps terminal installer as the front door and adds one local maintenance entry"
 }

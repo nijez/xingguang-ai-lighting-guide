@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-25.43"
-INSTALLER_VERSION="2026-06-25.43"
-TARGET="${TARGET:-/tmp/xinguang-light-install.sh}"
-STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
-LOG_FILE="${LOG_FILE:-/tmp/xinguang-light-install-current.log}"
-RUN_MARKER="${RUN_MARKER:-/tmp/xinguang-light-install.marker}"
+ENTRY_VERSION="2026-06-25.45"
+INSTALLER_VERSION="2026-06-25.45"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+TARGET="${TARGET:-$BASE_DIR/install-cache/install-miloco-openclaw-cloud.sh}"
+STATE_FILE="${STATE_FILE:-$BASE_DIR/state/xinguang-light-install.state}"
+LOG_FILE="${LOG_FILE:-$BASE_DIR/logs/xinguang-light-install-current.log}"
+RUN_MARKER="${RUN_MARKER:-$BASE_DIR/state/xinguang-light-install.marker}"
 ACTION="${1:-install}"
+
+mkdir -p "$BASE_DIR/install-cache" "$BASE_DIR/state" "$BASE_DIR/logs"
 
 download_installer() {
   local tmp

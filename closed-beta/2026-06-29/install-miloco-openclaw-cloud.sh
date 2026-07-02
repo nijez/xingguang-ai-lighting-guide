@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.43"
+SCRIPT_VERSION="2026-06-25.45"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -22,7 +22,9 @@ INSTALL_NONINTERACTIVE="${INSTALL_NONINTERACTIVE:-0}"
 RUN_CONTEXT="${RUN_CONTEXT:-}"
 DEPLOY_SUPERVISOR="${DEPLOY_SUPERVISOR:-0}"
 SUPERVISOR_UNIT="${SUPERVISOR_UNIT:-xingguang-miloco-deploy}"
-PID_FILE="${PID_FILE:-/tmp/openclaw-miloco-install.pid}"
+XINGUANG_STATE_DIR="${XINGUANG_STATE_DIR:-$HOME/xinguang-ai-light/state}"
+XINGUANG_LOG_DIR="${XINGUANG_LOG_DIR:-$HOME/xinguang-ai-light/logs}"
+PID_FILE="${PID_FILE:-$XINGUANG_STATE_DIR/openclaw-miloco-install.pid}"
 PRELOAD_MILOCO_BUNDLE="${PRELOAD_MILOCO_BUNDLE:-1}"
 CACHE_MILOCO_BUNDLE="${CACHE_MILOCO_BUNDLE:-1}"
 INSTALL_WEIXIN_PLUGIN="${INSTALL_WEIXIN_PLUGIN:-0}"
@@ -39,10 +41,10 @@ PYPI_INDEX="${PYPI_INDEX:-auto}"
 PYPI_FALLBACK_OFFICIAL="${PYPI_FALLBACK_OFFICIAL:-1}"
 NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
-LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
-STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.16}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.16}"
+LOG_FILE="${LOG_FILE:-$XINGUANG_LOG_DIR/openclaw-miloco-install-current.log}"
+STATE_FILE="${STATE_FILE:-$XINGUANG_STATE_DIR/openclaw-miloco-install.state}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.17}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.17}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -2140,7 +2142,7 @@ write_xinguang_workspace_rules() {
 
 所有用户可见回复必须简洁。禁止输出思考过程、英文分析、工具调用说明、内部命令名、失败栈、搜索过程、底层实现、授权码解析过程和任何技术诊断内容。
 
-下面所有固定动作都只允许调用本地 `xinguang-*` 包装命令，并且只把包装命令输出原样回复给用户。不要解释包装命令为什么这样做，不要自行改用其他命令。
+下面所有固定动作都只允许调用本地馨光包装命令，并且只把包装命令输出原样回复给用户。不要解释包装命令为什么这样做，不要自行改用其他命令。
 
 ### 用户说「绑定米家账号」时
 
@@ -2185,15 +2187,15 @@ write_xinguang_workspace_rules() {
 
 `xinguang-install-skill`
 
-只回复该命令输出。禁止搜索 ClawHub，禁止询问 Skill 来源，禁止新建 Skill，禁止推荐普通米家灯控。
+只回复该命令输出。禁止搜索外部来源，禁止询问 Skill 来源，禁止新建 Skill，禁止推荐普通米家灯控。
 
 ## 部署器职责边界
 
-本环境已完成 Miloco 2.0 与馨光 Skill 的安装准备。
+本环境已完成基础环境与馨光 Skill 的安装准备。
 
 部署器只负责安装、刷新、安装状态检查和失败诊断。
 
-馨光 Skill 的具体使用、控灯逻辑、设备匹配与业务安全策略由研发侧负责，不由部署器维护。
+馨光 Skill 的具体使用与业务安全策略由研发侧负责，不由部署器维护。
 USERMD
 
   log "馨光对话规则已写入龙虾工作区"
@@ -2217,22 +2219,9 @@ prepare_xinguang_skill_installer() {
   local path_authorize_shortcut="$bin_dir/xinguang-authorize-mijia"
   local path_select_home_shortcut="$bin_dir/xinguang-select-home"
   local version_file="$install_dir/VERSION.json"
-  local doctor="$install_dir/xinguang-doctor"
-  local panel="$install_dir/xinguang-panel"
-  local panel_sh="$install_dir/xinguang-panel.sh"
-  local list_devices="$install_dir/xinguang-list-devices"
-  local tail_logs="$install_dir/xinguang-tail-logs"
-  local export_diag="$install_dir/xinguang-export-diagnostics"
+  local xinguang_cli="$install_dir/xinguang"
 
   mkdir -p "$install_dir" "$bin_dir"
-
-  local cleanup_dir
-  for cleanup_dir in "$install_dir" "$bin_dir"; do
-    rm -f "$cleanup_dir"/xinguang-*-light 2>/dev/null || true
-    rm -f "$cleanup_dir"/xinguang-arm-* 2>/dev/null || true
-    rm -f "$cleanup_dir"/xinguang-*-target-* 2>/dev/null || true
-    rm -f "$cleanup_dir"/xinguang-test-* 2>/dev/null || true
-  done
 
   download_versioned_file "$base_entry" "ENTRY_VERSION=\"$SCRIPT_VERSION\"" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/install-xinguang-ai-light.sh" \
@@ -2265,38 +2254,13 @@ prepare_xinguang_skill_installer() {
     log "警告：VERSION.json 下载失败，不影响主流程"
   chmod 644 "$version_file" 2>/dev/null || true
 
-  download_versioned_file "$doctor" 'XINGUANG_DOCTOR_VERSION="2026-06-29.1"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-doctor" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-doctor" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-doctor" ||
-    log "警告：xinguang-doctor 下载失败，不影响主流程"
-  download_versioned_file "$panel" 'XINGUANG_PANEL_VERSION="2026-06-29.2"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-panel" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-panel" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-panel" ||
-    log "警告：xinguang-panel 下载失败，不影响主流程"
-  download_versioned_file "$panel_sh" 'XINGUANG_PANEL_SH_VERSION="2026-06-29.2"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-panel.sh" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-panel.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-panel.sh" ||
-    log "警告：xinguang-panel.sh 下载失败，不影响主流程"
-  download_versioned_file "$list_devices" 'XINGUANG_LIST_DEVICES_VERSION="2026-06-29.1"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-list-devices" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-list-devices" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-list-devices" ||
-    log "警告：xinguang-list-devices 下载失败，不影响主流程"
-  download_versioned_file "$tail_logs" 'XINGUANG_TAIL_LOGS_VERSION="2026-06-29.1"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-tail-logs" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-tail-logs" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-tail-logs" ||
-    log "警告：xinguang-tail-logs 下载失败，不影响主流程"
-  download_versioned_file "$export_diag" 'XINGUANG_EXPORT_DIAGNOSTICS_VERSION="2026-06-29.1"' \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang-export-diagnostics" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang-export-diagnostics" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang-export-diagnostics" ||
-    log "警告：xinguang-export-diagnostics 下载失败，不影响主流程"
+  download_versioned_file "$xinguang_cli" 'XINGUANG_CLI_VERSION="2026-07-02.4"' \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/closed-beta/2026-06-29/xinguang" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/closed-beta/2026-06-29/xinguang" ||
+    log "警告：xinguang 维护入口下载失败，不影响主流程"
 
-  for helper in "$doctor" "$panel" "$panel_sh" "$list_devices" "$tail_logs" "$export_diag"; do
+  for helper in "$xinguang_cli"; do
     [[ -x "$helper" ]] && cp "$helper" "$bin_dir/$(basename "$helper")" 2>/dev/null || true
   done
 

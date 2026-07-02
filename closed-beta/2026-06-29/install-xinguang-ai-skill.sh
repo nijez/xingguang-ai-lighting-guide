@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-26.16"
-INSTALLER_VERSION="2026-06-26.16"
-TARGET="${TARGET:-/tmp/xinguang-skill-install.sh}"
+ENTRY_VERSION="2026-06-26.17"
+INSTALLER_VERSION="2026-06-26.17"
+BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
+TARGET="${TARGET:-$BASE_DIR/install-cache/install-xinguang-skill.sh}"
 ACTION="${1:-${INSTALL_ACTION:-install}}"
+
+mkdir -p "$BASE_DIR/install-cache" "$BASE_DIR/state" "$BASE_DIR/logs"
 
 download_installer() {
   local tmp
