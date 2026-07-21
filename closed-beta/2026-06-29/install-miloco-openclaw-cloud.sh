@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is configured only when MIMO_API_KEY is supplied.
 
-SCRIPT_VERSION="2026-06-25.47"
+SCRIPT_VERSION="2026-06-25.48"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -43,8 +43,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 LOG_FILE="${LOG_FILE:-$XINGUANG_LOG_DIR/openclaw-miloco-install-current.log}"
 STATE_FILE="${STATE_FILE:-$XINGUANG_STATE_DIR/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.19}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.19}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.20}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.20}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -2244,7 +2244,7 @@ prepare_xinguang_skill_installer() {
     log "警告：VERSION.json 下载失败，不影响主流程"
   chmod 644 "$version_file" 2>/dev/null || true
 
-  download_versioned_file "$xinguang_cli" 'XINGUANG_CLI_VERSION="2026-07-02.6"' \
+  download_versioned_file "$xinguang_cli" 'XINGUANG_CLI_VERSION="2026-07-02.7"' \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/xinguang" ||
     log "警告：xinguang 维护入口下载失败，不影响主流程"
 

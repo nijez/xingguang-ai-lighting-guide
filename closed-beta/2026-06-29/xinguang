@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_CLI_VERSION="2026-07-02.6"
+XINGUANG_CLI_VERSION="2026-07-02.7"
 BASE_DIR="${XINGUANG_BASE_DIR:-$HOME/xinguang-ai-light}"
 BIN_DIR="${XINGUANG_BIN_DIR:-$HOME/.local/bin}"
 INSTALL_COMMAND="curl -fsSL https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/closed-beta/2026-06-29/install-xinguang-ai-light.sh -o install-xinguang-ai-light-closed-beta.sh && bash install-xinguang-ai-light-closed-beta.sh"
@@ -12,10 +12,38 @@ SKILL_MAIN="$BASE_DIR/install-xinguang-skill.sh"
 SKILL_SHORTCUT="$BIN_DIR/xinguang-install-skill"
 LOG_EXPORT_DIR="$BASE_DIR/diagnostics"
 
-FIRST_STAGE_ENTRY_VERSION="2026-06-25.47"
-FIRST_STAGE_MAIN_VERSION="2026-06-25.47"
-SECOND_STAGE_ENTRY_VERSION="2026-06-26.19"
-SECOND_STAGE_MAIN_VERSION="2026-06-26.19"
+FIRST_STAGE_ENTRY_VERSION="2026-06-25.48"
+FIRST_STAGE_MAIN_VERSION="2026-06-25.48"
+SECOND_STAGE_ENTRY_VERSION="2026-06-26.20"
+SECOND_STAGE_MAIN_VERSION="2026-06-26.20"
+
+is_dragon_parent_process() {
+  local pid="${PPID:-}" depth=0 line next
+  while [[ -n "$pid" && "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 && "$depth" -lt 16 ]]; do
+    line="$(ps -p "$pid" -o comm= -o args= 2>/dev/null || true)"
+    if printf '%s\n' "$line" | grep -Eiq 'openclaw|agentchat|clawbot|lightclaw|miloco'; then
+      return 0
+    fi
+    next="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
+    [[ -n "$next" && "$next" != "$pid" ]] || break
+    pid="$next"
+    depth=$((depth + 1))
+  done
+  return 1
+}
+
+require_terminal_context() {
+  [[ "${XINGUANG_ALLOW_NON_TTY:-0}" == "1" ]] && return 0
+  if [[ ! -t 0 || ! -t 1 ]] || is_dragon_parent_process; then
+    cat <<'EOF'
+请在腾讯云免密终端里手动运行维护命令。
+不要把维护命令发到龙虾对话窗口。
+EOF
+    exit 2
+  fi
+}
+
+require_terminal_context
 
 print_help() {
   cat <<EOF
