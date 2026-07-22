@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.14"
-XINGUANG_SKILL_VERSION="3.0.1"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.15"
+XINGUANG_SKILL_VERSION=""
 SKILL_NAME="wainfort-ai-lighting-run"
 SKILL_COMPANY="深圳市馨光智能物联有限公司"
 
@@ -178,17 +178,51 @@ download_skill() {
   download_file "$PUBLIC_SKILL_DIR/SKILL.md" "${urls[@]}" || die "馨光 Skill 文件下载失败"
 
   grep -q "^name: $SKILL_NAME$" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 名称校验失败"
-  grep -q "\"version\":\"$XINGUANG_SKILL_VERSION\"" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 版本校验失败"
+  XINGUANG_SKILL_VERSION="$(python3 - "$PUBLIC_SKILL_DIR/SKILL.md" <<'PY'
+import json
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+if lines and lines[0] == "---":
+    for line in lines[1:]:
+        if line == "---":
+            break
+        if line.startswith("metadata:"):
+            try:
+                metadata = json.loads(line.split(":", 1)[1].strip())
+                version = metadata.get("openclaw", {}).get("version", "")
+                if isinstance(version, str):
+                    print(version)
+            except (json.JSONDecodeError, AttributeError):
+                pass
+            break
+PY
+)"
+  [[ -n "$XINGUANG_SKILL_VERSION" ]] || die "馨光 Skill 版本信息缺失"
   grep -q "$SKILL_COMPANY" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 公司信息校验失败"
+  state_mark "SKILL_VERSION_FETCHED=$XINGUANG_SKILL_VERSION"
   state_mark SKILL_DOWNLOAD_DONE
 }
 
 prepare_local_skill() {
   mkdir -p "$LOCAL_SKILL_DIR"
   cp "$PUBLIC_SKILL_DIR/SKILL.md" "$LOCAL_SKILL_FILE"
-  perl -0pi -e "s/wainfort-ai-2026-你的本地Token/$WAINFORT_API_TOKEN/g" "$LOCAL_SKILL_FILE"
+  WAINFORT_API_TOKEN="$WAINFORT_API_TOKEN" python3 - "$LOCAL_SKILL_FILE" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+token = os.environ["WAINFORT_API_TOKEN"]
+text = open(path, encoding="utf-8").read()
+text = text.replace("wainfort-ai-2026-你的本地Token", token)
+text = text.replace("你自定义的APIToken", token)
+text = text.replace("你的APIToken", token)
+open(path, "w", encoding="utf-8").write(text)
+PY
   chmod 700 "$LOCAL_SKILL_DIR" 2>/dev/null || true
   chmod 600 "$LOCAL_SKILL_FILE" 2>/dev/null || true
+  ! grep -qE 'wainfort-ai-2026-你的本地Token|你自定义的APIToken|你的APIToken' "$LOCAL_SKILL_FILE" ||
+    die "馨光 Skill 本地配置未完成"
   state_mark SKILL_LOCAL_CONFIG_READY
 }
 
@@ -1063,7 +1097,6 @@ main() {
     printf '%s\n' "$$" >"$PID_FILE"
     printf '正在安装馨光 Skill。\n'
     state_mark "INSTALLER_VERSION=$XINGUANG_SKILL_INSTALLER_VERSION"
-    state_mark "SKILL_VERSION=$XINGUANG_SKILL_VERSION"
     state_mark XINGUANG_SKILL_PREINSTALL_STARTED
 
     check_first_stage_ready
@@ -1093,7 +1126,6 @@ EOF
   printf '%s\n' "$$" >"$PID_FILE"
   printf '正在安装馨光 Skill。\n'
   state_mark "INSTALLER_VERSION=$XINGUANG_SKILL_INSTALLER_VERSION"
-  state_mark "SKILL_VERSION=$XINGUANG_SKILL_VERSION"
 
   check_first_stage_ready
   check_home_selection_before_install
