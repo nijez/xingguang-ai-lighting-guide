@@ -1,9 +1,9 @@
 {
-  "panel": "2026-07-22.11",
+  "panel": "2026-07-22.12",
   "base_installer": "2026-06-25.32",
   "miloco_recommended": "2026.7.17",
   "miloco_required": "2026.7.17",
-  "skill_installer": "2026-07-22.1",
+  "skill_installer": "2026-07-22.2",
   "skill": "4.0.1",
   "release_channel": "closed-beta-simple-panel",
   "status": "closed-beta-testing"

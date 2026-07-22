@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-XINGUANG_SIMPLE_SKILL_INSTALLER_VERSION="2026-07-22.1"
+XINGUANG_SIMPLE_SKILL_INSTALLER_VERSION="2026-07-22.2"
 XINGUANG_SKILL_VERSION="4.0.1"
 SKILL_NAME="wainfort-ai-lighting-run"
 
@@ -252,7 +252,7 @@ open(path, "w", encoding="utf-8").write(text)
 PY
   chmod 600 "$SKILL_FILE"
   grep -q '"version":"4.0.1"' "$SKILL_FILE" || die "馨光 Skill 版本校验失败"
-  ! grep -qE 'wainfort-ai-2026-你的本地Token|APIToken' "$SKILL_FILE" ||
+  ! grep -qE 'wainfort-ai-2026-你的本地Token|你自定义的APIToken|你的APIToken' "$SKILL_FILE" ||
     die "馨光 Skill 本地配置未完成"
 }
 
