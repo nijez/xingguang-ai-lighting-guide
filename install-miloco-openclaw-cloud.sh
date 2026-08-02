@@ -6,9 +6,9 @@ set -Eeuo pipefail
 # - OpenClaw gateway binds to loopback only.
 # - Mi Home account binding is skipped.
 # - WeChat channel installation/login is skipped.
-# - MiMo API key is configured only when MIMO_API_KEY is supplied.
+# - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.32"
+SCRIPT_VERSION="2026-06-25.34"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1632,6 +1632,35 @@ miloco_base_ready() {
   return 1
 }
 
+sync_mimo_key_to_miloco() {
+  local source_key="$MIMO_API_KEY"
+  local openclaw_auth="$HOME/.openclaw/agents/main/agent/auth-profiles.json"
+  local miloco_config="$MILOCO_HOME/config.json"
+  local current_key=""
+
+  if [[ -z "$source_key" && -f "$openclaw_auth" ]]; then
+    source_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("profiles") or {}).get("mimo:default") or {}).get("key", ""); print(value, end="") if isinstance(value, str) else None' "$openclaw_auth" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$source_key" ]]; then
+    log "未检测到 MiMo Key，请在腾讯云龙虾应用设置中填写后重新运行本命令"
+    return 0
+  fi
+
+  if [[ -f "$miloco_config" ]]; then
+    current_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("model") or {}).get("omni") or {}).get("api_key", ""); print(value, end="") if isinstance(value, str) else None' "$miloco_config" 2>/dev/null || true)"
+  fi
+  if [[ -n "$current_key" && "$current_key" == "$source_key" ]]; then
+    log "MiMo Key 已配置，跳过"
+    return 0
+  fi
+
+  miloco-cli config set model.omni.api_key "$source_key" --no-restart >/dev/null 2>&1 || die "MiMo Key 同步失败"
+  current_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("model") or {}).get("omni") or {}).get("api_key", ""); print(value, end="") if isinstance(value, str) else None' "$miloco_config" 2>/dev/null || true)"
+  [[ "$current_key" == "$source_key" ]] || die "MiMo Key 同步后校验失败"
+  log "MiMo Key 已同步"
+}
+
 install_miloco() {
   local installer="$WORK_DIR/install-miloco.sh"
   mapfile -t urls < <(miloco_installer_urls | rank_urls_by_speed "灯光插件安装器" 1)
@@ -1662,11 +1691,6 @@ install_miloco() {
     else
       die "灯光插件收尾失败，且未确认安装完成"
     fi
-  fi
-
-  if [[ -n "$MIMO_API_KEY" ]]; then
-    log "Configuring MiMo API key"
-    miloco-cli config set model.omni.api_key "$MIMO_API_KEY" --no-restart
   fi
 
   miloco-cli service start >/dev/null 2>&1 || true
@@ -2326,6 +2350,7 @@ run_full_deploy() {
     step_done_msg 3 "安装灯光插件" "$step_start"
     log_timing_since "灯光插件" "$step_start"
   fi
+  sync_mimo_key_to_miloco
 
   if state_has STEP_4_DONE; then
     step_skip_msg 4 "Ask OpenClaw platform binding" "state already has STEP_4_DONE"
@@ -2423,6 +2448,7 @@ run_miloco_deploy() {
   else
     install_miloco
   fi
+  sync_mimo_key_to_miloco
   step_done_msg 3 "安装或更新灯光插件" "$step_start"
 
   step_start="$(date +%s)"
