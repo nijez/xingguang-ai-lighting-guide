@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.2","date":"2026-08-03","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.3","date":"2026-08-03","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.2(本地部署版)
+# 馨光智能灯控制服务 v4.0.3(本地部署版)
 
 > 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
@@ -34,8 +34,8 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.2","date":"2026-08-03","aut
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
 
 **多灯控制:**
-- ✅ 按用户指定范围（如某房间、全屋）取得设备清单中全部 `online` 为 `True` 的设备，逐台执行；全部设备执行完才能向用户报告，漏一台即为未完成。
-- ✅ 每台灯先执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读状态；若 `prop.2.1` 为 `false`，先执行 `miloco-cli device control <did> prop.2.1 true`，再调用 `/api/generate`，最后再次执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读确认。
+- ✅ 按用户指定范围（如某房间、全屋）取得设备清单中全部 `online` 为 `True` 的设备，逐台执行；全部在线且开启的设备执行完才能向用户报告，漏一台在线且开启的设备即为未完成。
+- ✅ 每台灯先执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读状态；若 `prop.2.1` 为 `false`，默认跳过执行，不得开灯或调用 `/api/generate`；仅当用户在本轮明确要求打开该灯时，才允许开灯并继续执行。被跳过的关灯设备不计入失败，任务完成回复中用一句中文告知，例如：「软膜当前处于关闭状态，未参与本次效果；需要时请说“打开软膜”」。其余在线且开启的设备调用 `/api/generate` 后，最后再次执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读确认。
 - ✅ 成败一律以最后一次回读状态为准：`on` 为 `true` 且本次生成效果已下发即视为成功。设备返回码可能误报（例如开灯命令报设备侧执行失败但实际成功），不得以 API 或 miloco-cli 的返回码判定成败。
 - ✅ 某台灯最后回读未生效时，只用一句中文向用户说明哪盏灯未生效。
 

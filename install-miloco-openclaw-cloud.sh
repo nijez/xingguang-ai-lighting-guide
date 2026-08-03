@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.35"
+SCRIPT_VERSION="2026-06-25.36"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2180,6 +2180,10 @@ write_xinguang_workspace_rules() {
 
 ## 固定对话规则（最高优先级）
 
+### 全局输出规则
+
+1. 任何情况下不得向用户输出 `NO_REPLY`、`HEARTBEAT` 或其他内部占位词/协议词；判断无需回复时保持静默即可。
+
 ### 用户说「绑定米家账号」时
 
 禁止输出任何思考过程、分析、工具调用说明、技能搜索过程。只输出最终回复用户的内容。
@@ -2192,7 +2196,11 @@ write_xinguang_workspace_rules() {
 
 授权完成后，把授权码复制回来。
 
-步骤二：收到授权码后，执行 `miloco-cli account authorize <授权码>`，再执行 `miloco-cli scope home list` 获取家庭列表（返回 JSON，从 data 数组读取 home_name 和 home_id）。在同一条回复中根据家庭数量输出：
+步骤二：收到授权码后，只执行一次 `miloco-cli account authorize <授权码>`；同一个授权码严禁重复 authorize（授权码为一次性凭据）。
+
+若 `authorize` 成功，执行 `miloco-cli scope home list` 获取家庭列表（返回 JSON，从 data 数组读取 home_name 和 home_id）。若 `authorize` 失败，必须先执行 `miloco-cli scope home list` 判断绑定实际状态：能返回家庭列表即视为绑定成功，按成功流程继续，禁止要求用户重新授权；只有确认当前账号未绑定时，才引导用户重新授权一次。
+
+确认绑定成功后，在同一条回复中根据家庭数量输出：
 
 只有一个家庭时，回复：
 
