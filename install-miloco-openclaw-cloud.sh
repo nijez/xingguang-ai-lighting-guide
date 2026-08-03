@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.38"
+SCRIPT_VERSION="2026-06-25.39"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -40,7 +40,7 @@ PYPI_FALLBACK_OFFICIAL="${PYPI_FALLBACK_OFFICIAL:-1}"
 NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
-XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON:-0}"
+XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.16}"
@@ -275,7 +275,7 @@ terminal_progress_message_for_marker() {
 
   case "$phase" in
     complete)
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n'
       ;;
     error)
       printf '安装未完成，请联系工作人员处理。\n'
@@ -383,7 +383,7 @@ status_complete_message() {
 4/4 基础环境安装完成
 
 下一步：
-请回到龙虾，发送「绑定米家账号。绑定成功后不要自动选择家庭；如果有多个家庭，请列出家庭让我选择馨光设备所在家庭。」
+请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。
 EOF
 }
 
@@ -417,7 +417,7 @@ terminal_status_report() {
 [100%] 基础环境安装完成。
 
 下一步：
-请回到龙虾，发送「绑定米家账号」。
+请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。
 EOF
       ;;
     error)
@@ -476,7 +476,7 @@ terminal_emit_progress() {
       TERMINAL_CURRENT_PHASE="complete"
       TERMINAL_CURRENT_LABEL="基础环境安装完成"
       TERMINAL_CURRENT_PHASE_MAX=100
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到龙虾，发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n'
     fi
     return 0
   fi
@@ -2171,10 +2171,13 @@ download_versioned_file() {
 write_xinguang_workspace_rules() {
   local workspace_dir="$HOME/.openclaw/workspace"
   local user_md="$workspace_dir/USER.md"
+  local rules_tmp=""
 
   [[ -d "$workspace_dir" ]] || return 0
 
-  cat >"$user_md" <<'USERMD'
+  rules_tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-workspace-rules.XXXXXX")"
+  cat >"$rules_tmp" <<'USERMD'
+<!-- XINGUANG-RULES-BEGIN -->
 # USER.md - 馨光 AI 设计灯光
 
 ## 当前用户
@@ -2265,8 +2268,73 @@ write_xinguang_workspace_rules() {
 9. 安装失败后只回复：
 
 馨光 Skill 暂时无法安装，请联系工作人员处理。
+<!-- XINGUANG-RULES-END -->
 USERMD
 
+  if [[ ! -e "$user_md" ]]; then
+    if ! cat "$rules_tmp" >"$user_md"; then
+      rm -f "$rules_tmp"
+      return 1
+    fi
+  elif grep -Fqx '<!-- XINGUANG-RULES-BEGIN -->' "$user_md" &&
+    grep -Fqx '<!-- XINGUANG-RULES-END -->' "$user_md"; then
+    if ! python3 - "$user_md" "$rules_tmp" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+replacement = Path(sys.argv[2]).read_bytes()
+if replacement.endswith(b"\n"):
+    replacement = replacement[:-1]
+source = path.read_bytes()
+begin = b"<!-- XINGUANG-RULES-BEGIN -->"
+end = b"<!-- XINGUANG-RULES-END -->"
+
+if source.count(begin) != 1 or source.count(end) != 1:
+    raise SystemExit(1)
+
+start = source.find(begin)
+end_position = source.find(end, start) + len(end)
+updated = source[:start] + replacement + source[end_position:]
+mode = stat.S_IMODE(path.stat().st_mode)
+descriptor, temporary_name = tempfile.mkstemp(prefix=".USER.md.", dir=str(path.parent))
+try:
+    with os.fdopen(descriptor, "wb") as temporary_file:
+        temporary_file.write(updated)
+        temporary_file.flush()
+        os.fsync(temporary_file.fileno())
+    os.chmod(temporary_name, mode)
+    os.replace(temporary_name, path)
+except OSError:
+    try:
+        os.unlink(temporary_name)
+    except OSError:
+        pass
+    raise
+PY
+    then
+      rm -f "$rules_tmp"
+      return 1
+    fi
+  else
+    if [[ -s "$user_md" ]] && [[ "$(tail -c 1 "$user_md" 2>/dev/null || true)" != $'\n' ]]; then
+      if ! printf '\n' >>"$user_md"; then
+        rm -f "$rules_tmp"
+        return 1
+      fi
+    fi
+    if ! printf '\n' >>"$user_md" || ! cat "$rules_tmp" >>"$user_md"; then
+      rm -f "$rules_tmp"
+      return 1
+    fi
+    log "共存模式：已追加馨光规则，未改动您的既有配置"
+  fi
+
+  rm -f "$rules_tmp"
   log "馨光对话规则已写入龙虾工作区"
 }
 
@@ -2476,8 +2544,84 @@ EOF
   fi
 }
 
+disable_xinguang_cron_guard_schedule() {
+  local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
+  local guard_script="$install_dir/xinguang-cron-guard"
+  local cron_line current_crontab
+
+  if have sudo && sudo -n true >/dev/null 2>&1; then
+    if sudo systemctl list-unit-files xinguang-cron-guard.timer --no-legend 2>/dev/null |
+      grep -q '^xinguang-cron-guard\.timer'; then
+      if ! sudo systemctl disable --now xinguang-cron-guard.timer >/dev/null 2>&1; then
+        log "无法停用已有的馨光看门狗定时器，请联系工作人员处理。"
+        return 1
+      fi
+    fi
+  elif [[ -e /etc/systemd/system/xinguang-cron-guard.timer ]]; then
+    log "无法停用已有的馨光看门狗定时器，请联系工作人员处理。"
+    return 1
+  fi
+
+  have crontab || return 0
+
+  cron_line="*/10 * * * * /bin/bash -lc '$guard_script'"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+  if grep -Fqx "$cron_line" <<<"$current_crontab"; then
+    if ! printf '%s\n' "$current_crontab" |
+      awk -v guard_line="$cron_line" '$0 != guard_line' |
+      crontab - >/dev/null 2>&1; then
+      log "无法停用已有的馨光看门狗定时任务，请联系工作人员处理。"
+      return 1
+    fi
+  fi
+}
+
+miloco_omni_model_is_configured() {
+  local config_file="$HOME/.openclaw/miloco/config.json"
+
+  [[ -f "$config_file" ]] || return 1
+
+  python3 - "$config_file" <<'PY'
+import json
+import sys
+
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as config_file:
+        config = json.load(config_file)
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+
+model = config.get("model") if isinstance(config, dict) else None
+omni = model.get("omni") if isinstance(model, dict) else None
+api_key = omni.get("api_key") if isinstance(omni, dict) else None
+raise SystemExit(0 if isinstance(api_key, str) and api_key.strip() else 1)
+PY
+}
+
 prepare_xinguang_cron_guard() {
-  [[ "$XINGUANG_KEEP_MILOCO_CRON" == 1 ]] && return 0
+  case "$XINGUANG_KEEP_MILOCO_CRON" in
+    1)
+      disable_xinguang_cron_guard_schedule || return 1
+      log "已按 XINGUANG_KEEP_MILOCO_CRON=1 强制保留 Miloco 后台任务，跳过看门狗。"
+      return 0
+      ;;
+    0)
+      log "已按 XINGUANG_KEEP_MILOCO_CRON=0 强制关闭 Miloco 后台任务。"
+      ;;
+    "")
+      if miloco_omni_model_is_configured; then
+        disable_xinguang_cron_guard_schedule || return 1
+        log "检测到 Miloco 已配置模型（感知功能使用中），保留其后台任务"
+        return 0
+      fi
+      ;;
+    *)
+      disable_xinguang_cron_guard_schedule || return 1
+      log "XINGUANG_KEEP_MILOCO_CRON 仅支持 0 或 1；为避免影响现有任务，保留其后台任务。"
+      return 0
+      ;;
+  esac
 
   local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
   local bin_dir="$HOME/.local/bin"
@@ -2588,7 +2732,6 @@ EOF
   chmod +x "$home_shortcut"
   cp "$home_shortcut" "$path_home_shortcut" 2>/dev/null || true
 
-  write_xinguang_workspace_rules || log "警告：馨光对话规则写入失败，不影响主流程"
   state_mark XINGUANG_SKILL_INSTALLER_READY
 
   cat >"$install_dir/灯光测试提示.txt" <<'EOF'
@@ -2690,6 +2833,7 @@ run_full_deploy() {
     step_done_msg 6 "灯光服务验证和下一步引导" "$step_start"
   fi
 
+  write_xinguang_workspace_rules || log "警告：馨光对话规则写入失败，不影响主流程"
   prepare_xinguang_cron_guard
   print_next_actions
 }
@@ -2761,6 +2905,7 @@ run_miloco_deploy() {
   fi
   step_done_msg 4 "灯光服务验证" "$step_start"
   log_timing_since "灯光插件维护" "$action_start"
+  write_xinguang_workspace_rules || log "警告：馨光对话规则写入失败，不影响主流程"
   print_next_actions
 }
 
