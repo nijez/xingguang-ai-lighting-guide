@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.36"
+SCRIPT_VERSION="2026-06-25.37"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -39,6 +39,8 @@ PYPI_INDEX="${PYPI_INDEX:-auto}"
 PYPI_FALLBACK_OFFICIAL="${PYPI_FALLBACK_OFFICIAL:-1}"
 NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
+DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
+XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON:-0}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.16}"
@@ -198,6 +200,7 @@ write_supervisor_launcher() {
     printf 'export OPENCLAW_BIND=%q\n' "$OPENCLAW_BIND"
     printf 'export OPENCLAW_MIN_VERSION=%q\n' "$OPENCLAW_MIN_VERSION"
     printf 'export INSTALL_WEIXIN_PLUGIN=%q\n' "$INSTALL_WEIXIN_PLUGIN"
+    printf 'export XINGUANG_KEEP_MILOCO_CRON=%q\n' "$XINGUANG_KEEP_MILOCO_CRON"
     printf 'export XINGUANG_SKILL_ENTRY_VERSION=%q\n' "$XINGUANG_SKILL_ENTRY_VERSION"
     printf 'export XINGUANG_SKILL_INSTALLER_VERSION=%q\n' "$XINGUANG_SKILL_INSTALLER_VERSION"
     printf 'export XINGUANG_LOCAL_INSTALL_DIR=%q\n' "$XINGUANG_LOCAL_INSTALL_DIR"
@@ -709,7 +712,7 @@ launch_background_supervisor() {
   state_mark_silent BACKGROUND_SUPERVISOR_STARTED
   write_supervisor_launcher "$launcher"
 
-  if have systemd-run && systemd-run --user --unit="$unit" --collect --property=Restart=no /bin/bash "$launcher" >/dev/null 2>&1; then
+  if [[ -z "$DEEPSEEK_API_KEY" ]] && have systemd-run && systemd-run --user --unit="$unit" --collect --property=Restart=no /bin/bash "$launcher" >/dev/null 2>&1; then
     start_method="systemd-run --user"
   else
     setsid nohup /bin/bash "$launcher" </dev/null >>"$LOG_FILE" 2>&1 &
@@ -2265,6 +2268,256 @@ USERMD
   log "馨光对话规则已写入龙虾工作区"
 }
 
+prepare_xinguang_set_chat_model_helper() {
+  local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
+  local bin_dir="$HOME/.local/bin"
+  local chat_model_shortcut="$install_dir/xinguang-set-chat-model"
+  local path_chat_model_shortcut="$bin_dir/xinguang-set-chat-model"
+
+  mkdir -p "$install_dir" "$bin_dir"
+
+  cat >"$chat_model_shortcut" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+set +x
+
+provider="${1:-}"
+api_key="${2:-}"
+model_id="${3:-deepseek-chat}"
+
+if [[ -z "$provider" || -z "$api_key" ]]; then
+  printf '用法：xinguang-set-chat-model deepseek <API_KEY> [model_id]\n' >&2
+  exit 1
+fi
+
+if [[ "$provider" != "deepseek" ]]; then
+  printf '当前仅支持 DeepSeek 对话模型。\n' >&2
+  exit 1
+fi
+
+DEEPSEEK_CONFIG_API_KEY="$api_key" python3 - "$model_id" <<'PY'
+import json
+import os
+import shutil
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+api_key = os.environ.pop("DEEPSEEK_CONFIG_API_KEY", "")
+model_id = sys.argv[1]
+config_path = Path.home() / ".openclaw" / "openclaw.json"
+backup_path = config_path.with_name("openclaw.json.bak-chat-model")
+
+if not api_key:
+    fail("未提供 DeepSeek Key，未修改配置。")
+if not config_path.is_file():
+    fail("未找到龙虾配置文件，请先完成基础安装。")
+
+try:
+    with config_path.open("r", encoding="utf-8") as config_file:
+        config = json.load(config_file)
+except (OSError, json.JSONDecodeError):
+    fail("龙虾配置文件格式错误，未修改。")
+
+if not isinstance(config, dict):
+    fail("龙虾配置文件格式错误，未修改。")
+
+models = config.setdefault("models", {})
+if not isinstance(models, dict):
+    fail("龙虾配置文件格式错误，未修改。")
+providers = models.setdefault("providers", {})
+if not isinstance(providers, dict):
+    fail("龙虾配置文件格式错误，未修改。")
+agents = config.setdefault("agents", {})
+if not isinstance(agents, dict):
+    fail("龙虾配置文件格式错误，未修改。")
+defaults = agents.setdefault("defaults", {})
+if not isinstance(defaults, dict):
+    fail("龙虾配置文件格式错误，未修改。")
+
+if not backup_path.exists():
+    try:
+        shutil.copy2(config_path, backup_path)
+    except OSError:
+        fail("龙虾配置备份失败，未修改。")
+
+providers["deepseek"] = {
+    "baseUrl": "https://api.deepseek.com/v1",
+    "api": "openai-completions",
+    "apiKey": api_key,
+    "models": [{"id": model_id, "name": model_id}],
+}
+defaults["model"] = {"primary": f"deepseek/{model_id}"}
+
+try:
+    source_mode = stat.S_IMODE(config_path.stat().st_mode)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".openclaw.json.", dir=str(config_path.parent)
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as temporary_file:
+        json.dump(config, temporary_file, ensure_ascii=False, indent=2)
+        temporary_file.write("\n")
+        temporary_file.flush()
+        os.fsync(temporary_file.fileno())
+    os.chmod(temporary_name, source_mode)
+    os.replace(temporary_name, config_path)
+except OSError:
+    try:
+        os.unlink(temporary_name)
+    except (NameError, OSError):
+        pass
+    fail("龙虾配置写入失败，未修改。")
+PY
+unset api_key
+
+if ! bash -lc "openclaw gateway restart" >/dev/null 2>&1; then
+  printf '龙虾服务重启失败，请联系工作人员处理。\n' >&2
+  exit 1
+fi
+
+printf '已将对话模型设置为 DeepSeek。\n'
+EOF
+  chmod +x "$chat_model_shortcut"
+  cp "$chat_model_shortcut" "$path_chat_model_shortcut" 2>/dev/null || true
+}
+
+configure_deepseek_chat_model_if_requested() {
+  [[ -n "$DEEPSEEK_API_KEY" ]] || return 0
+
+  local chat_model_shortcut="$XINGUANG_LOCAL_INSTALL_DIR/xinguang-set-chat-model"
+  if [[ ! -x "$chat_model_shortcut" ]]; then
+    prepare_xinguang_set_chat_model_helper
+  fi
+
+  "$chat_model_shortcut" deepseek "$DEEPSEEK_API_KEY"
+  printf '对话模型已配置为 DeepSeek\n'
+}
+
+write_xinguang_cron_guard_systemd_unit() {
+  local source_file="$1"
+  local target_file="$2"
+
+  if sudo cmp -s "$source_file" "$target_file" 2>/dev/null; then
+    return 0
+  fi
+  sudo install -m 0644 "$source_file" "$target_file" >/dev/null 2>&1
+}
+
+configure_xinguang_cron_guard_schedule() {
+  local guard_script="$1"
+  local service_tmp=""
+  local timer_tmp=""
+  local cron_line current_crontab
+
+  if have sudo && sudo -n true >/dev/null 2>&1; then
+    service_tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-cron-guard.service.XXXXXX")"
+    timer_tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-cron-guard.timer.XXXXXX")"
+
+    cat >"$service_tmp" <<EOF
+[Unit]
+Description=馨光 Miloco 后台模型任务看门狗
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/bin/bash -lc '$guard_script'
+EOF
+
+    cat >"$timer_tmp" <<'EOF'
+[Unit]
+Description=馨光 Miloco 后台模型任务看门狗定时器
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Persistent=true
+Unit=xinguang-cron-guard.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    if write_xinguang_cron_guard_systemd_unit "$service_tmp" /etc/systemd/system/xinguang-cron-guard.service &&
+      write_xinguang_cron_guard_systemd_unit "$timer_tmp" /etc/systemd/system/xinguang-cron-guard.timer &&
+      sudo systemctl daemon-reload >/dev/null 2>&1 &&
+      sudo systemctl enable --now xinguang-cron-guard.timer >/dev/null 2>&1; then
+      rm -f "$service_tmp" "$timer_tmp"
+      return 0
+    fi
+
+    rm -f "$service_tmp" "$timer_tmp"
+    log "系统定时器配置失败，改用用户定时任务。"
+  fi
+
+  have crontab || {
+    log "无法写入用户定时任务，请联系工作人员处理。"
+    return 1
+  }
+
+  cron_line="*/10 * * * * /bin/bash -lc '$guard_script'"
+  current_crontab="$(crontab -l 2>/dev/null || true)"
+  if ! grep -Fqx "$cron_line" <<<"$current_crontab"; then
+    if ! {
+      printf '%s\n' "$current_crontab"
+      printf '%s\n' "$cron_line"
+    } | crontab - >/dev/null 2>&1; then
+      log "无法写入用户定时任务，请联系工作人员处理。"
+      return 1
+    fi
+  fi
+}
+
+prepare_xinguang_cron_guard() {
+  [[ "$XINGUANG_KEEP_MILOCO_CRON" == 1 ]] && return 0
+
+  local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
+  local bin_dir="$HOME/.local/bin"
+  local guard_script="$install_dir/xinguang-cron-guard"
+  local path_guard_script="$bin_dir/xinguang-cron-guard"
+
+  mkdir -p "$install_dir" "$bin_dir"
+
+  cat >"$guard_script" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# 非登录环境需要显式加入 pnpm 与 nvm 的 Node 路径。
+export PATH="$HOME/.local/share/pnpm:$HOME/.npm-global/bin:$PATH"
+for node_bin in "$HOME"/.nvm/versions/node/*/bin; do
+  [[ -d "$node_bin" ]] || continue
+  export PATH="$node_bin:$PATH"
+done
+
+bash -lc '
+  set -Eeuo pipefail
+  export PATH="$HOME/.local/share/pnpm:$HOME/.npm-global/bin:$PATH"
+  for node_bin in "$HOME"/.nvm/versions/node/*/bin; do
+    [[ -d "$node_bin" ]] || continue
+    export PATH="$node_bin:$PATH"
+  done
+
+  command -v openclaw >/dev/null 2>&1 || exit 0
+  while IFS= read -r cron_id; do
+    [[ -n "$cron_id" ]] || continue
+    openclaw cron disable "$cron_id" >/dev/null 2>&1 || true
+  done < <(openclaw cron list 2>/dev/null | grep "miloco-" | awk "{print \$1}" || true)
+'
+EOF
+  chmod +x "$guard_script"
+  cp "$guard_script" "$path_guard_script" 2>/dev/null || true
+
+  "$guard_script"
+  printf '已关闭 Miloco 后台模型任务（馨光专用模式）；如需视觉感知功能请联系工作人员开启\n'
+  configure_xinguang_cron_guard_schedule "$guard_script"
+}
+
 prepare_xinguang_skill_installer() {
   local install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
   local bin_dir="$HOME/.local/bin"
@@ -2414,6 +2667,9 @@ run_full_deploy() {
     log_timing_since "米家账号绑定提示" "$step_start"
   fi
 
+  prepare_xinguang_set_chat_model_helper
+  configure_deepseek_chat_model_if_requested
+
   if state_has STEP_6_DONE; then
     step_skip_msg 6 "灯光服务验证和下一步引导" "state already has STEP_6_DONE"
   else
@@ -2431,6 +2687,8 @@ run_full_deploy() {
     fi
     step_done_msg 6 "灯光服务验证和下一步引导" "$step_start"
   fi
+
+  prepare_xinguang_cron_guard
   print_next_actions
 }
 
