@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.39"
+SCRIPT_VERSION="2026-06-25.40"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1663,7 +1663,7 @@ sync_mimo_key_to_miloco() {
   fi
 
   if [[ -z "$source_key" ]]; then
-    log "未检测到 MiMo Key，请在腾讯云龙虾应用设置中填写后重新运行本命令"
+    log "说明：未配置 MiMo Key，已按馨光专用模式继续（灯光功能不受影响；仅使用 Miloco 视觉感知时才需要该 Key，可在腾讯云控制台填写后重跑本命令启用）"
     return 0
   fi
 
@@ -2172,6 +2172,8 @@ write_xinguang_workspace_rules() {
   local workspace_dir="$HOME/.openclaw/workspace"
   local user_md="$workspace_dir/USER.md"
   local rules_tmp=""
+  local legacy_signature_count=0
+  local signature=""
 
   [[ -d "$workspace_dir" ]] || return 0
 
@@ -2321,17 +2323,32 @@ PY
       return 1
     fi
   else
-    if [[ -s "$user_md" ]] && [[ "$(tail -c 1 "$user_md" 2>/dev/null || true)" != $'\n' ]]; then
-      if ! printf '\n' >>"$user_md"; then
+    for signature in \
+      '必须先完整读取 wainfort-ai-lighting-run Skill 并严格按其铁律执行' \
+      '检测到多个家庭，请选择馨光设备所在家庭：' \
+      '馨光 Skill 暂时无法安装，请联系工作人员处理。'; do
+      if grep -Fq -- "$signature" "$user_md"; then
+        ((legacy_signature_count += 1))
+      fi
+    done
+    if (( legacy_signature_count >= 3 )); then
+      if ! cat "$rules_tmp" >"$user_md"; then
         rm -f "$rules_tmp"
         return 1
       fi
+    else
+      if [[ -s "$user_md" ]] && [[ "$(tail -c 1 "$user_md" 2>/dev/null || true)" != $'\n' ]]; then
+        if ! printf '\n' >>"$user_md"; then
+          rm -f "$rules_tmp"
+          return 1
+        fi
+      fi
+      if ! printf '\n' >>"$user_md" || ! cat "$rules_tmp" >>"$user_md"; then
+        rm -f "$rules_tmp"
+        return 1
+      fi
+      log "共存模式：已追加馨光规则，未改动您的既有配置"
     fi
-    if ! printf '\n' >>"$user_md" || ! cat "$rules_tmp" >>"$user_md"; then
-      rm -f "$rules_tmp"
-      return 1
-    fi
-    log "共存模式：已追加馨光规则，未改动您的既有配置"
   fi
 
   rm -f "$rules_tmp"
