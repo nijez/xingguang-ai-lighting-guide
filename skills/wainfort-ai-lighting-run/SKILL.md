@@ -1,10 +1,12 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.1","date":"2026-06-29","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.2","date":"2026-08-03","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.1(本地部署版)
+# 馨光智能灯控制服务 v4.0.2(本地部署版)
+
+> 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
 ## 一、方案说明
 
@@ -27,14 +29,18 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.1","date":"2026-06-29","aut
 
 **`wainft.light.rgbcwy` 设备:**
 - ❌ 禁止 miloco-cli 调用 `prop.4.x`
-- ✅ AI生成灯光后,只能调用**wainfort-server API**,忽略返回结果
+- ✅ AI生成灯光后,只能调用**wainfort-server API**
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
-- ✅ 调用**wainfort-server API**和调用miloco-cli的返回值经常是错的，忽略返回值，认为所有返回都是正确的。
 
 **多灯控制:**
-- ✅ 给多灯发送完全的控制命令
-- ✅ AI 设计灯光生成的color0(起点色)和 color1(终点色)后,每个灯依次调用wainfort-server API去执行
+- ✅ 按用户指定范围（如某房间、全屋）取得设备清单中全部 `online` 为 `True` 的设备，逐台执行；全部设备执行完才能向用户报告，漏一台即为未完成。
+- ✅ 每台灯先执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读状态；若 `prop.2.1` 为 `false`，先执行 `miloco-cli device control <did> prop.2.1 true`，再调用 `/api/generate`，最后再次执行 `miloco-cli device props <did> prop.2.1 prop.2.2 prop.2.4` 回读确认。
+- ✅ 成败一律以最后一次回读状态为准：`on` 为 `true` 且本次生成效果已下发即视为成功。设备返回码可能误报（例如开灯命令报设备侧执行失败但实际成功），不得以 API 或 miloco-cli 的返回码判定成败。
+- ✅ 某台灯最后回读未生效时，只用一句中文向用户说明哪盏灯未生效。
+
+**用户输出:**
+- ✅ 向用户只输出中文结果；禁止展示英文推理过程、内部命令、`STATE` 行、Token、DID 或其他内部信息。
 
 ---
 
@@ -262,11 +268,43 @@ curl http://127.0.0.1:1888/api/status
 ### 2. 查询设备
 
 ```bash
-curl http://127.0.0.1:1888/api/devices \
-  -H "Authorization: Bearer 你的APIToken"
+MILOCO_TOKEN="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+with Path("~/.openclaw/miloco/config.json").expanduser().open(encoding="utf-8") as handle:
+    print(json.load(handle)["server"]["token"])
+PY
+)"
+export MILOCO_TOKEN
+
+curl -fsS --max-time 20 \
+  -H "Authorization: Bearer $MILOCO_TOKEN" \
+  http://127.0.0.1:1810/api/miot/home |
+  python3 -c "$(cat <<'PY'
+import json
+import sys
+
+def walk(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
+
+for item in walk(json.load(sys.stdin)):
+    if "did" in item and item.get("model") == "wainft.light.rgbcwy":
+        room = item.get("room_name") or item.get("room", "")
+        print(f'{item["did"]}|{item.get("name", "")}|{room}|{item.get("online", False)}')
+PY
+)"
+
+unset MILOCO_TOKEN
 ```
 
-找到 `model=wainft.light.rgbcwy` 的设备,其 `did` 就是你要控制的设备。
+命令逐行输出 `did|name|room|online`，仅保留 `model` 为 `wainft.light.rgbcwy` 的设备；`room` 优先取 `room_name`，缺省时回退 `room`。Token 仅在命令内部使用，绝不向用户展示。
 
 ---
 
@@ -310,7 +348,7 @@ curl http://127.0.0.1:1888/api/devices \
 - 没有设置 `WAINFORT_MILOCO_TOKEN` —— 启动时会打印警告
 - 检查miloco后端是否运行:`curl http://127.0.0.1:1810/`
 - 检查 Miloco Token 是否正确
-- 检查设备DID是否正确:通过API `/devices` 查询
+- 检查设备DID是否正确:通过“七、查询设备”中的固定命令确认
 - 检查设备是否在线
 
 ### 保存快照失败
