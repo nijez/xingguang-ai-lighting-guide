@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.34"
+SCRIPT_VERSION="2026-06-25.35"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -41,8 +41,8 @@ NPM_REGISTRY="${NPM_REGISTRY:-auto}"
 MIMO_API_KEY="${MIMO_API_KEY:-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.15}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.15}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.16}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.16}"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -351,6 +351,21 @@ EOF
   esac
 }
 
+emit_mimo_key_log_updates() {
+  local seen_file="$1"
+  local line key
+
+  [[ -f "$LOG_FILE" ]] || return 0
+  while IFS= read -r line; do
+    [[ "$line" == *"MiMo Key"* ]] || continue
+    key="MIMO_KEY_LOG:$line"
+    if ! grep -Fxq -- "$key" "$seen_file" 2>/dev/null; then
+      printf '%s\n' "$line"
+      printf '%s\n' "$key" >>"$seen_file"
+    fi
+  done <"$LOG_FILE"
+}
+
 status_running_hint() {
   if [[ "${RUN_CONTEXT:-}" == agentchat* ]]; then
     printf '\n请继续等待，不要重复发送一键安装指令。\n'
@@ -434,6 +449,7 @@ emit_progress_updates() {
       printf '%s\n' "$key" >>"$seen_file"
     fi
   done <"$STATE_FILE"
+  emit_mimo_key_log_updates "$seen_file"
 }
 
 terminal_emit_progress() {
@@ -498,6 +514,7 @@ emit_terminal_progress_updates() {
     IFS='|' read -r percent phase label phase_max <<<"$fields"
     terminal_emit_progress "$percent" "$phase" "$label" "$phase_max" "$elapsed"
   done <"$STATE_FILE"
+  emit_mimo_key_log_updates "$seen_file"
 }
 
 terminal_heartbeat_message() {
@@ -2217,11 +2234,22 @@ write_xinguang_workspace_rules() {
 你可以说：
 客厅来个马尔代夫的海边日落
 
-5. 安装失败后只回复：
+5. 当安装输出含「检测到多个家庭」时：
+
+- 如果本次对话已经知道用户选择的家庭，不要重复询问；后台静默执行 `xinguang-set-home "<家庭名称>" "<家庭ID>"`，然后重新执行安装。
+- 如果尚不知道用户选择，从输出中提取家庭列表，请用户选择；收到选择后按上一步后台静默设置家庭并重新执行安装。
+- 重跑后按本规则中的成功或失败回复。
+- 禁止自动选择第一个家庭、解释内部要求、显示内部命令、家庭 ID 或其他内部信息。
+
+6. 安装命令超时或被中断时，不得仅凭目录存在判断成功；必须后台静默执行 `xinguang-install-skill status` 查询状态，再按查询结果回复。
+
+7. 全程只向用户输出中文结果；禁止输出英文推理、内部命令或 `STATE` 行。
+
+8. 禁止：搜索 ClawHub、询问 Skill 来源、新建 Skill、推荐普通米家灯控。
+
+9. 安装失败后只回复：
 
 馨光 Skill 暂时无法安装，请联系工作人员处理。
-
-禁止：搜索 ClawHub、询问 Skill 来源、新建 Skill、推荐普通米家灯控。
 USERMD
 
   log "馨光对话规则已写入龙虾工作区"
