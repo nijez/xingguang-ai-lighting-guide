@@ -1634,12 +1634,12 @@ miloco_base_ready() {
 
 sync_mimo_key_to_miloco() {
   local source_key="$MIMO_API_KEY"
-  local openclaw_auth="$HOME/.openclaw/agents/main/agent/auth-profiles.json"
+  local openclaw_config="$HOME/.openclaw/openclaw.json"
   local miloco_config="$MILOCO_HOME/config.json"
   local current_key=""
 
-  if [[ -z "$source_key" && -f "$openclaw_auth" ]]; then
-    source_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("profiles") or {}).get("mimo:default") or {}).get("key", ""); print(value, end="") if isinstance(value, str) else None' "$openclaw_auth" 2>/dev/null || true)"
+  if [[ -z "$source_key" && -f "$openclaw_config" ]]; then
+    source_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((((data.get("models") or {}).get("providers") or {}).get("mimo") or {}).get("apiKey", "")); print(value, end="") if isinstance(value, str) else None' "$openclaw_config" 2>/dev/null || true)"
   fi
 
   if [[ -z "$source_key" ]]; then
