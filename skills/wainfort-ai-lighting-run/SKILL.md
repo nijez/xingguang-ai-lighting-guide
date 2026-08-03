@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.4","date":"2026-08-03","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.5","date":"2026-08-03","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.4(本地部署版)
+# 馨光智能灯控制服务 v4.0.5(本地部署版)
 
 > 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
@@ -31,6 +31,7 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.4","date":"2026-08-03","aut
 - ❌ 禁止 miloco-cli 调用 `prop.4.x`
 - ✅ AI生成灯光后,只能调用**wainfort-server API**
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
+- ❌ **亮度调整只允许通过 `/api/generate` 的 `brightness` 字段；严禁用 miloco-cli 写 `prop.2.2`（亮度）或 `prop.2.12`（饱和度）；这两个属性只可读（回读核验用）。**
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
 - ✅ **API Token 现读与 Unauthorized 处置（铁律）:** 每次调用 wainfort-server API 前，必须现场执行 `set -a; . ~/wainfort-light/.env; set +a` 读取 `WAINFORT_API_TOKEN`；严禁使用对话历史中出现过的任何 Token 值（包括打码形态）。收到 `Unauthorized` 时，必须重新读取 `.env` 后仅再试一次；仍失败则停止，并只用一句中文告知用户「该操作暂时无法完成，请稍后再试」。Token 不得以任何形式展示。文中所有 API 调用示例仅说明请求结构，实际调用必须先执行上述命令并使用现场读取的环境变量；示例中的「你的APIToken」仅作占位，不得用于实际调用或展示。
 
@@ -130,6 +131,16 @@ nohup ./wainfort-server > api.log 2>&1 &
 ## 六、核心功能
 
 ### 功能一:AI 设计灯光
+
+#### 触发词
+
+**主触发格式:** `<区域>淡彩光 <场景描述>`；`<区域>星光 <场景描述>` 与其等价。
+
+示例：`门市淡彩光 圣诞节`、`客厅星光 马尔代夫日落`。
+
+识别到触发词时，**禁止浏览设备目录或推理设备类型**，直接执行「七、查询功能」中「2. 查询设备」的固定命令，从输出中取该区域内 `model=wainft.light.rgbcwy` 且 `online` 为 `True` 的设备清单；随后按既有铁律逐台执行：回读、跳过关灯设备、调用 `/api/generate`、回读确认。
+
+自然语言表述（如「门市来个圣诞氛围」）保留为等效兜底路径，规则相同：禁止浏览设备目录或推理设备类型，直接执行上述固定命令，并按既有铁律完成回读、跳过关灯设备、逐台 generate、回读确认。
 
 #### 触发条件
 
