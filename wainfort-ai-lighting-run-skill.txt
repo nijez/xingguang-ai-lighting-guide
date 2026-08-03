@@ -32,6 +32,7 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.3","date":"2026-08-03","aut
 - ✅ AI生成灯光后,只能调用**wainfort-server API**
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
+- ✅ **API Token 现读与 Unauthorized 处置（铁律）:** 每次调用 wainfort-server API 前，必须现场执行 `set -a; . ~/wainfort-light/.env; set +a` 读取 `WAINFORT_API_TOKEN`；严禁使用对话历史中出现过的任何 Token 值（包括打码形态）。收到 `Unauthorized` 时，必须重新读取 `.env` 后仅再试一次；仍失败则停止，并只用一句中文告知用户「该操作暂时无法完成，请稍后再试」。Token 不得以任何形式展示。文中所有 API 调用示例仅说明请求结构，实际调用必须先执行上述命令并使用现场读取的环境变量；示例中的「你的APIToken」仅作占位，不得用于实际调用或展示。
 
 **多灯控制:**
 - ✅ 按用户指定范围（如某房间、全屋）取得设备清单中全部 `online` 为 `True` 的设备，逐台执行；全部在线且开启的设备执行完才能向用户报告，漏一台在线且开启的设备即为未完成。
