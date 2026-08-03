@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.40"
+SCRIPT_VERSION="2026-06-25.41"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1663,7 +1663,7 @@ sync_mimo_key_to_miloco() {
   fi
 
   if [[ -z "$source_key" ]]; then
-    log "说明：未配置 MiMo Key，已按馨光专用模式继续（灯光功能不受影响；仅使用 Miloco 视觉感知时才需要该 Key，可在腾讯云控制台填写后重跑本命令启用）"
+    state_mark_silent MIMO_KEY_ABSENT
     return 0
   fi
 
