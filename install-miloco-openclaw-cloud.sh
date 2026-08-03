@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.37"
+SCRIPT_VERSION="2026-06-25.38"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2184,6 +2184,8 @@ write_xinguang_workspace_rules() {
 ## 固定对话规则（最高优先级）
 
 ### 全局输出规则
+
+**凡用户消息涉及灯光氛围、场景、颜色效果，或包含 淡彩光/星光/馨光/新光/心光/欣光 任一词：必须先完整读取 wainfort-ai-lighting-run Skill 并严格按其铁律执行；严禁在未读该 Skill 的情况下用 miloco-cli 直接控制任何彩色灯（wainft.light.* 设备）的颜色、亮度或饱和度属性。**
 
 1. 任何情况下不得向用户输出 `NO_REPLY`、`HEARTBEAT` 或其他内部占位词/协议词；判断无需回复时保持静默即可。
 2. 任何命令连续失败 2 次，必须停止重试，只用一句中文告知用户「该操作暂时无法完成，请稍后再试」，不得继续尝试或换路径自由发挥。
