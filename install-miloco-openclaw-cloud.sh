@@ -1658,6 +1658,7 @@ sync_mimo_key_to_miloco() {
   miloco-cli config set model.omni.api_key "$source_key" --no-restart >/dev/null 2>&1 || die "MiMo Key 同步失败"
   current_key="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("model") or {}).get("omni") or {}).get("api_key", ""); print(value, end="") if isinstance(value, str) else None' "$miloco_config" 2>/dev/null || true)"
   [[ "$current_key" == "$source_key" ]] || die "MiMo Key 同步后校验失败"
+  miloco-cli service restart >/dev/null 2>&1 || true
   log "MiMo Key 已同步"
 }
 
