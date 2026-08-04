@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.42"
+SCRIPT_VERSION="2026-06-25.43"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1327,6 +1327,16 @@ https://mirrors.huaweicloud.com/repository/npm
 URLS
 }
 
+probe_npm_registry() {
+  local registry="$1"
+  LC_ALL=C curl -fsSL \
+    --connect-timeout 3 \
+    --max-time 3 \
+    -o /dev/null \
+    -w '%{time_total}' \
+    "${registry%/}/openclaw" 2>/dev/null
+}
+
 select_npm_registry() {
   if [[ "$NPM_REGISTRY" != auto ]]; then
     printf '%s' "$NPM_REGISTRY"
@@ -1338,29 +1348,28 @@ select_npm_registry() {
     return
   fi
 
-  local registry test_url result_file failed_file elapsed
-  result_file="$WORK_DIR/npm.speed"
-  failed_file="$WORK_DIR/npm.failed"
-  : >"$result_file"
-  : >"$failed_file"
+  local registry elapsed best_registry="" best_elapsed=""
+  local -a registries=(
+    "https://registry.npmmirror.com"
+    "https://mirrors.cloud.tencent.com/npm"
+    "https://registry.npmjs.org"
+  )
 
-  log "Benchmarking npm registries"
-  while IFS= read -r registry; do
-    [[ -n "$registry" ]] || continue
-    test_url="${registry%/}/openclaw"
-    if elapsed="$(benchmark_url "$test_url" 0)"; then
-      log "  ${elapsed}s  $registry"
-      printf '%s\t%s\n' "$elapsed" "$registry" >>"$result_file"
-    else
-      log "  failed  $registry"
-      printf '%s\n' "$registry" >>"$failed_file"
+  for registry in "${registries[@]}"; do
+    if elapsed="$(probe_npm_registry "$registry")"; then
+      if [[ -z "$best_elapsed" ]] || awk -v candidate="$elapsed" -v best="$best_elapsed" 'BEGIN { exit !(candidate < best) }'; then
+        best_registry="$registry"
+        best_elapsed="$elapsed"
+      fi
     fi
-  done < <(available_npm_registries)
+  done
 
-  if [[ -s "$result_file" ]]; then
-    sort -n "$result_file" | head -1 | cut -f2-
+  if [[ -n "$best_registry" ]]; then
+    log "软件源优选：${best_registry#https://}（${best_elapsed}s）"
+    printf '%s' "$best_registry"
   else
-    printf '%s' 'https://registry.npmjs.org'
+    log "软件源优选：registry.npmmirror.com（全部探测失败，回退默认源）"
+    printf '%s' 'https://registry.npmmirror.com'
   fi
 }
 
