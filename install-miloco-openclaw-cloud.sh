@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.43"
+SCRIPT_VERSION="2026-06-25.44"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -45,6 +45,7 @@ LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.17}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.17}"
+XINGUANG_PANEL_VERSION="1.0.0"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -2767,6 +2768,25 @@ EOF
 EOF
 }
 
+prepare_xinguang_panel() {
+  local install_dir bin_dir panel path_panel
+  install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
+  bin_dir="$HOME/.local/bin"
+  panel="$install_dir/xinguang"
+  path_panel="$bin_dir/xinguang"
+
+  mkdir -p "$install_dir" "$bin_dir"
+
+  download_versioned_file "$panel" "XINGUANG_PANEL_VERSION=\"$XINGUANG_PANEL_VERSION\"" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-panel.sh" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-panel.sh" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-panel.sh" ||
+    die
+
+  cp "$panel" "$path_panel" || die
+  chmod +x "$panel" "$path_panel"
+}
+
 run_full_deploy() {
   local step_start
   TOTAL_STEPS=6
@@ -2838,6 +2858,7 @@ run_full_deploy() {
     log_timing_since "米家账号绑定提示" "$step_start"
   fi
 
+  prepare_xinguang_panel
   prepare_xinguang_set_chat_model_helper
   configure_deepseek_chat_model_if_requested
 
