@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.18"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.19"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -15,6 +15,7 @@ STATE_FILE="${STATE_FILE:-/tmp/xinguang-skill-install.state}"
 PID_FILE="${PID_FILE:-/tmp/xinguang-skill-install.pid}"
 SERVER_URL="${SERVER_URL:-http://appagent.wainfort.com/download/wainfort-server}"
 WAINFORT_SERVER_SHA256="${WAINFORT_SERVER_SHA256:-d8eb45d26474ee578f65d9a86e13a6899e408eae362bb4796d902ecb29f3aea3}"
+WAINFORT_SERVER_EXPECTED_BYTES="${WAINFORT_SERVER_EXPECTED_BYTES:-46137344}"
 WAINFORT_API_PORT="${WAINFORT_API_PORT:-1888}"
 WAINFORT_MILOCO_URL="${WAINFORT_MILOCO_URL:-http://127.0.0.1:1810}"
 WAINFORT_DATA_DIR="${WAINFORT_DATA_DIR:-$XINGUANG_BASE_DIR/wainfort-data}"
@@ -46,6 +47,7 @@ TARGET_HOME_FILE="${TARGET_HOME_FILE:-$XINGUANG_BASE_DIR/target-home.env}"
 DEVICE_REPORT="$INSTALL_DIR/device-report.txt"
 
 if [[ "$INSTALL_ACTION" != "status" ]]; then
+  exec 3>&1
   mkdir -p "$(dirname "$LOG_FILE")" "$INSTALL_DIR" "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR"
   touch "$LOG_FILE"
   exec > >(tee -a "$LOG_FILE") 2>&1
@@ -215,6 +217,135 @@ EOF
   export WAINFORT_CONFIG_DIR
   export WAINFORT_CACHE_DIR
   state_mark TOKEN_CONFIGURED
+}
+
+format_elapsed_mmss() {
+  local seconds="${1:-0}"
+  printf '%02d:%02d' $((seconds / 60)) $((seconds % 60))
+}
+
+format_megabytes() {
+  local bytes="${1:-0}"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  LC_ALL=C awk -v bytes="$bytes" 'BEGIN { printf "%.1f", bytes / 1048576 }'
+}
+
+format_download_speed_kbps() {
+  local bytes="${1:-0}" seconds="${2:-0}"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+  LC_ALL=C awk -v bytes="$bytes" -v seconds="$seconds" 'BEGIN {
+    if (seconds <= 0) {
+      printf "0.0"
+    } else {
+      printf "%.1f", bytes / seconds / 1024
+    }
+  }'
+}
+
+downloaded_file_size() {
+  [[ -f "$1" ]] || {
+    printf '0\n'
+    return 0
+  }
+  wc -c <"$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+curl_progress_percent() {
+  [[ -s "$1" ]] || return 1
+  LC_ALL=C tr '\r' '\n' <"$1" |
+    grep -oE '[0-9]{1,3}([.][0-9]+)?%' |
+    tail -n 1 |
+    sed -E 's/[^0-9].*//'
+}
+
+download_remaining_minutes() {
+  local downloaded="$1" total="$2" elapsed="$3" remaining_seconds
+  if (( downloaded <= 0 || total <= downloaded || elapsed <= 0 )); then
+    printf '0\n'
+    return 0
+  fi
+  remaining_seconds=$(((total - downloaded) * elapsed / downloaded))
+  printf '%s\n' "$(((remaining_seconds + 59) / 60))"
+}
+
+emit_download_progress() {
+  local elapsed="$1" label="$2" percent="$3" downloaded="$4" total="$5" remaining="$6"
+  printf '[已用 %s] 正在下载%s：%s%%（%sMB/%sMB，约剩 %s 分钟）\n' \
+    "$(format_elapsed_mmss "$elapsed")" \
+    "$label" \
+    "$percent" \
+    "$(format_megabytes "$downloaded")" \
+    "$(format_megabytes "$total")" \
+    "$remaining" >&3
+}
+
+emit_download_progress_without_total() {
+  local elapsed="$1" label="$2" downloaded="$3"
+  printf '[已用 %s] 正在下载%s：已下载 %sMB（速度 %sKB/s）\n' \
+    "$(format_elapsed_mmss "$elapsed")" \
+    "$label" \
+    "$(format_megabytes "$downloaded")" \
+    "$(format_download_speed_kbps "$downloaded" "$elapsed")" >&3
+}
+
+download_file_with_progress() {
+  local target="$1" label="$2" expected_bytes="${3:-0}" url="$4"
+  local progress_file curl_pid start_epoch now elapsed last_report
+  local total_bytes downloaded_bytes percent curl_percent remaining_minutes
+
+  [[ "$expected_bytes" =~ ^[0-9]+$ ]] || expected_bytes=0
+  total_bytes="$expected_bytes"
+
+  progress_file="$(mktemp "${TMPDIR:-/tmp}/xinguang-download-progress.XXXXXX")"
+  rm -f "$target"
+  start_epoch="$(date +%s)"
+  last_report=-12
+
+  curl -fL --progress-bar --retry 2 --connect-timeout 15 --max-time 900 \
+    "$url" -o "$target" 2>"$progress_file" &
+  curl_pid=$!
+
+  while kill -0 "$curl_pid" 2>/dev/null; do
+    now="$(date +%s)"
+    elapsed=$((now - start_epoch))
+    if (( elapsed - last_report >= 12 )); then
+      downloaded_bytes="$(downloaded_file_size "$target")"
+      [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
+      if (( total_bytes > 0 )); then
+        percent=$((downloaded_bytes * 100 / total_bytes))
+        curl_percent="$(curl_progress_percent "$progress_file" || true)"
+        if [[ "$curl_percent" =~ ^[0-9]+$ ]] && (( curl_percent > percent && curl_percent < 100 )); then
+          percent="$curl_percent"
+        fi
+        (( percent > 99 )) && percent=99
+        remaining_minutes="$(download_remaining_minutes "$downloaded_bytes" "$total_bytes" "$elapsed")"
+        emit_download_progress "$elapsed" "$label" "$percent" "$downloaded_bytes" "$total_bytes" "$remaining_minutes"
+      else
+        emit_download_progress_without_total "$elapsed" "$label" "$downloaded_bytes"
+      fi
+      last_report="$elapsed"
+    fi
+    sleep 1
+  done
+
+  if wait "$curl_pid"; then
+    now="$(date +%s)"
+    elapsed=$((now - start_epoch))
+    downloaded_bytes="$(downloaded_file_size "$target")"
+    [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
+    if (( total_bytes > 0 )); then
+      (( total_bytes < downloaded_bytes )) && total_bytes="$downloaded_bytes"
+      emit_download_progress "$elapsed" "$label" 100 "$downloaded_bytes" "$total_bytes" 0
+    else
+      emit_download_progress_without_total "$elapsed" "$label" "$downloaded_bytes"
+    fi
+    rm -f "$progress_file"
+    return 0
+  fi
+
+  rm -f "$progress_file"
+  return 1
 }
 
 download_file() {
@@ -425,7 +556,7 @@ verify_server_checksum() {
 }
 
 download_server() {
-  download_file "$SERVER_BIN" "$SERVER_URL" || die "wainfort-server 下载失败"
+  download_file_with_progress "$SERVER_BIN" "wainfort-server" "$WAINFORT_SERVER_EXPECTED_BYTES" "$SERVER_URL" || die "wainfort-server 下载失败"
   verify_server_checksum
   chmod +x "$SERVER_BIN"
   state_mark SERVER_DOWNLOAD_DONE

@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.45"
+SCRIPT_VERSION="2026-06-25.46"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -27,6 +27,7 @@ PRELOAD_MILOCO_BUNDLE="${PRELOAD_MILOCO_BUNDLE:-1}"
 CACHE_MILOCO_BUNDLE="${CACHE_MILOCO_BUNDLE:-1}"
 INSTALL_WEIXIN_PLUGIN="${INSTALL_WEIXIN_PLUGIN:-0}"
 DOWNLOAD_TIMEOUT="${DOWNLOAD_TIMEOUT:-900}"
+OPENCLAW_UPGRADE_EXPECTED_BYTES="${OPENCLAW_UPGRADE_EXPECTED_BYTES:-0}"
 MIRROR_TEST_TIMEOUT="${MIRROR_TEST_TIMEOUT:-8}"
 MIRROR_TEST_RANGE="${MIRROR_TEST_RANGE:-0-1048575}"
 AUTO_SELECT_MIRRORS="${AUTO_SELECT_MIRRORS:-1}"
@@ -42,12 +43,22 @@ MIMO_API_KEY="${MIMO_API_KEY:-}"
 DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
-STATE_FILE="${STATE_FILE:-/tmp/openclaw-miloco-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.18}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.18}"
-XINGUANG_PANEL_VERSION="1.0.0"
+STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.19}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.19}"
+XINGUANG_PANEL_VERSION="1.0.1"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
+absolute_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "$PWD" "$1" ;;
+  esac
+}
+
+STATE_FILE="$(absolute_path "$STATE_FILE")"
+
+exec 3>&1
 mkdir -p "$(dirname "$LOG_FILE")"
 touch "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -77,6 +88,10 @@ state_init() {
 state_has() {
   local marker="$1"
   [[ -f "$STATE_FILE" ]] && grep -Fxq "$marker" "$STATE_FILE"
+}
+
+install_complete_state() {
+  state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT
 }
 
 state_mark() {
@@ -117,7 +132,7 @@ recommended_continue_command() {
 
 print_incomplete_report() {
   local reason="${1:-unknown}"
-  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+  if install_complete_state; then
     return 0
   fi
   state_mark EXITED_BUT_INCOMPLETE || true
@@ -215,6 +230,203 @@ format_elapsed_mmss() {
   printf '%02d:%02d' $((seconds / 60)) $((seconds % 60))
 }
 
+format_megabytes() {
+  local bytes="${1:-0}"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  LC_ALL=C awk -v bytes="$bytes" 'BEGIN { printf "%.1f", bytes / 1048576 }'
+}
+
+format_download_speed_kbps() {
+  local bytes="${1:-0}" seconds="${2:-0}"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+  LC_ALL=C awk -v bytes="$bytes" -v seconds="$seconds" 'BEGIN {
+    if (seconds <= 0) {
+      printf "0.0"
+    } else {
+      printf "%.1f", bytes / seconds / 1024
+    }
+  }'
+}
+
+downloaded_file_size() {
+  [[ -f "$1" ]] || {
+    printf '0\n'
+    return 0
+  }
+  wc -c <"$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+curl_progress_percent() {
+  [[ -s "$1" ]] || return 1
+  LC_ALL=C tr '\r' '\n' <"$1" |
+    grep -oE '[0-9]{1,3}([.][0-9]+)?%' |
+    tail -n 1 |
+    sed -E 's/[^0-9].*//'
+}
+
+download_remaining_minutes() {
+  local downloaded="$1" total="$2" elapsed="$3" remaining_seconds
+  if (( downloaded <= 0 || total <= downloaded || elapsed <= 0 )); then
+    printf '0\n'
+    return 0
+  fi
+  remaining_seconds=$(((total - downloaded) * elapsed / downloaded))
+  printf '%s\n' "$(((remaining_seconds + 59) / 60))"
+}
+
+state_update_download_progress() {
+  local label="$1" percent="$2" downloaded="$3" total="$4" remaining="$5" elapsed="$6"
+  local state_tmp
+  state_init
+  state_tmp="$(mktemp "$(dirname "$STATE_FILE")/.xinguang-download.XXXXXX")"
+  {
+    grep -v '^DOWNLOAD_PROGRESS|' "$STATE_FILE" 2>/dev/null || true
+    printf 'DOWNLOAD_PROGRESS|%s|%s|%s|%s|%s|%s\n' \
+      "$label" "$percent" "$downloaded" "$total" "$remaining" "$elapsed"
+  } >"$state_tmp"
+  mv "$state_tmp" "$STATE_FILE"
+}
+
+latest_download_progress() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  grep '^DOWNLOAD_PROGRESS|' "$STATE_FILE" 2>/dev/null | tail -n 1
+}
+
+emit_download_progress_line() {
+  local elapsed="$1" label="$2" percent="$3" downloaded="$4" total="$5" remaining="$6"
+  printf '[已用 %s] 正在下载%s：%s%%（%sMB/%sMB，约剩 %s 分钟）\n' \
+    "$(format_elapsed_mmss "$elapsed")" \
+    "$label" \
+    "$percent" \
+    "$(format_megabytes "$downloaded")" \
+    "$(format_megabytes "$total")" \
+    "$remaining" >&3
+}
+
+emit_download_progress_without_total() {
+  local elapsed="$1" label="$2" downloaded="$3"
+  printf '[已用 %s] 正在下载%s：已下载 %sMB（速度 %sKB/s）\n' \
+    "$(format_elapsed_mmss "$elapsed")" \
+    "$label" \
+    "$(format_megabytes "$downloaded")" \
+    "$(format_download_speed_kbps "$downloaded" "$elapsed")" >&3
+}
+
+emit_download_progress_updates() {
+  local record marker label percent downloaded total remaining elapsed key
+  record="$(latest_download_progress || true)"
+  [[ -n "$record" ]] || return 0
+  IFS='|' read -r marker label percent downloaded total remaining elapsed <<<"$record"
+  [[ "$marker" == DOWNLOAD_PROGRESS ]] || return 0
+  [[ "$percent" == unknown || "$percent" =~ ^[0-9]+$ ]] || return 0
+  [[ "$downloaded" =~ ^[0-9]+$ && "$total" =~ ^[0-9]+$ && "$remaining" =~ ^[0-9]+$ && "$elapsed" =~ ^[0-9]+$ ]] || return 0
+  key="$label|$percent|$downloaded|$total|$remaining|$elapsed"
+  [[ "$key" == "${DOWNLOAD_PROGRESS_LAST:-}" ]] && return 0
+  DOWNLOAD_PROGRESS_LAST="$key"
+  if [[ "$percent" == unknown || "$total" == 0 ]]; then
+    emit_download_progress_without_total "$elapsed" "$label" "$downloaded"
+  else
+    emit_download_progress_line "$elapsed" "$label" "$percent" "$downloaded" "$total" "$remaining"
+  fi
+}
+
+download_reports_directly() {
+  [[ "${RUN_CONTEXT:-}" != *_supervisor ]]
+}
+
+download_url_with_progress() {
+  local target="$1" label="$2" expected_bytes="${3:-0}" url="$4"
+  local progress_file curl_pid start_epoch now elapsed last_report
+  local total_bytes downloaded_bytes percent curl_percent remaining_minutes
+
+  [[ "$expected_bytes" =~ ^[0-9]+$ ]] || expected_bytes=0
+  total_bytes="$expected_bytes"
+
+  progress_file="$WORK_DIR/curl-progress.$$.txt"
+  rm -f "$target" "$progress_file"
+  start_epoch="$(date +%s)"
+  last_report=-12
+
+  curl -fL --progress-bar --connect-timeout 15 --retry 2 --retry-delay 2 \
+    --max-time "$DOWNLOAD_TIMEOUT" -o "$target" "$url" 2>"$progress_file" &
+  curl_pid=$!
+
+  while kill -0 "$curl_pid" 2>/dev/null; do
+    now="$(date +%s)"
+    elapsed=$((now - start_epoch))
+    if (( elapsed - last_report >= 12 )); then
+      downloaded_bytes="$(downloaded_file_size "$target")"
+      [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
+      if (( total_bytes > 0 )); then
+        percent=$((downloaded_bytes * 100 / total_bytes))
+        curl_percent="$(curl_progress_percent "$progress_file" || true)"
+        if [[ "$curl_percent" =~ ^[0-9]+$ ]] && (( curl_percent > percent && curl_percent < 100 )); then
+          percent="$curl_percent"
+        fi
+        (( percent > 99 )) && percent=99
+        remaining_minutes="$(download_remaining_minutes "$downloaded_bytes" "$total_bytes" "$elapsed")"
+        state_update_download_progress "$label" "$percent" "$downloaded_bytes" "$total_bytes" "$remaining_minutes" "$elapsed"
+        if download_reports_directly; then
+          emit_download_progress_line "$elapsed" "$label" "$percent" "$downloaded_bytes" "$total_bytes" "$remaining_minutes"
+        fi
+      else
+        state_update_download_progress "$label" unknown "$downloaded_bytes" 0 0 "$elapsed"
+        if download_reports_directly; then
+          emit_download_progress_without_total "$elapsed" "$label" "$downloaded_bytes"
+        fi
+      fi
+      last_report="$elapsed"
+    fi
+    sleep 1
+  done
+
+  if wait "$curl_pid"; then
+    now="$(date +%s)"
+    elapsed=$((now - start_epoch))
+    downloaded_bytes="$(downloaded_file_size "$target")"
+    [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
+    if (( total_bytes > 0 )); then
+      (( total_bytes < downloaded_bytes )) && total_bytes="$downloaded_bytes"
+      state_update_download_progress "$label" 100 "$downloaded_bytes" "$total_bytes" 0 "$elapsed"
+      if download_reports_directly; then
+        emit_download_progress_line "$elapsed" "$label" 100 "$downloaded_bytes" "$total_bytes" 0
+      fi
+    else
+      state_update_download_progress "$label" unknown "$downloaded_bytes" 0 0 "$elapsed"
+      if download_reports_directly; then
+        emit_download_progress_without_total "$elapsed" "$label" "$downloaded_bytes"
+      fi
+    fi
+    rm -f "$progress_file"
+    return 0
+  fi
+
+  rm -f "$progress_file"
+  return 1
+}
+
+download_first_with_progress() {
+  local dest="$1" label="$2" expected_bytes="${3:-0}"
+  shift 3
+  local url tmp
+  tmp="${dest}.tmp"
+  rm -f "$tmp"
+
+  for url in "$@"; do
+    [[ -n "$url" ]] || continue
+    log "正在下载${label}"
+    if download_url_with_progress "$tmp" "$label" "$expected_bytes" "$url"; then
+      mv "$tmp" "$dest"
+      return 0
+    fi
+    rm -f "$tmp"
+    log "当前下载源不可用，继续尝试下一个源"
+  done
+
+  return 1
+}
+
 terminal_marker_fields() {
   case "$1" in
     INSTALL_STARTED|BACKGROUND_SUPERVISOR_STARTED)
@@ -236,7 +448,7 @@ terminal_marker_fields() {
       printf '24|connector|正在安装灯光插件|25\n'
       ;;
     LIGHT_COMPONENT_DOWNLOAD_STARTED)
-      printf '26|download|正在下载灯光组件|27\n'
+      printf '26|download|正在下载Miloco组件包|27\n'
       ;;
     LIGHT_SERVICE_INSTALL_STARTED|LIGHT_COMPONENT_DOWNLOAD_DONE|MILOCO_INSTALL_STARTED)
       printf '28|service|正在安装灯光服务|29\n'
@@ -247,7 +459,10 @@ terminal_marker_fields() {
     XINGUANG_SKILL_INSTALLER_READY)
       printf '32|installer|正在预置馨光 Skill 安装器|33\n'
       ;;
-    STEP_5_DONE|GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
+    STEP_5_DONE)
+      printf '34|local_tools|正在下载维护面板和本地工具|45\n'
+      ;;
+    GATEWAY_SERVICE_REPAIR_STARTED|GATEWAY_SERVICE_ACTIVE)
       printf '34|gateway_recover|正在启动龙虾服务|90\n'
       ;;
     GATEWAY_RESTART_SCHEDULED|AGENTCHAT_RECONNECT_EXPECTED|GATEWAY_RESTART_DONE)
@@ -291,6 +506,11 @@ terminal_best_progress_fields() {
   local marker fields percent phase label phase_max
   local best_percent=-1
   local best_fields=''
+
+  if install_complete_state; then
+    terminal_marker_fields STEP_6_DONE
+    return
+  fi
 
   if [[ ! -f "$STATE_FILE" ]]; then
     terminal_marker_fields INSTALL_STARTED
@@ -344,7 +564,7 @@ EOF
       printf '龙虾后台服务正在恢复，请稍候...\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '当前进度：\n4/4 基础环境安装完成\n\n下一步：\n请发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请发送「绑定米家账号」。\n'
       ;;
     OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装未完成，请联系工作人员处理。\n'
@@ -380,8 +600,7 @@ status_running_hint() {
 
 status_complete_message() {
   cat <<'EOF'
-当前进度：
-4/4 基础环境安装完成
+[100%] 基础环境安装完成。
 
 下一步：
 请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。
@@ -449,7 +668,7 @@ emit_progress_updates() {
       OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE) key="INSTALL_INCOMPLETE_OR_ERROR" ;;
     esac
     if ! grep -Fxq "$key" "$seen_file" 2>/dev/null; then
-      printf '%s\n' "$message"
+      printf '%s\n' "$message" >&3
       printf '%s\n' "$key" >>"$seen_file"
     fi
   done <"$STATE_FILE"
@@ -466,7 +685,7 @@ terminal_emit_progress() {
   if [[ "$phase" == error ]]; then
     if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
       TERMINAL_CURRENT_PHASE="error"
-      printf '安装未完成，请联系工作人员处理。\n'
+      printf '安装未完成，请联系工作人员处理。\n' >&3
     fi
     return 0
   fi
@@ -477,7 +696,7 @@ terminal_emit_progress() {
       TERMINAL_CURRENT_PHASE="complete"
       TERMINAL_CURRENT_LABEL="基础环境安装完成"
       TERMINAL_CURRENT_PHASE_MAX=100
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n' >&3
     fi
     return 0
   fi
@@ -502,7 +721,7 @@ terminal_emit_progress() {
     (( display_elapsed < 1 )) && display_elapsed=1
     formatted="$(format_elapsed_mmss "$display_elapsed")"
     TERMINAL_MAX_PERCENT="$percent"
-    printf '[已用 %s] %s%% %s...\n' "$formatted" "$percent" "$label"
+    printf '[已用 %s] %s%% %s...\n' "$formatted" "$percent" "$label" >&3
   fi
 }
 
@@ -585,16 +804,18 @@ observe_terminal_background_progress() {
   printf '\n开始安装，请稍候。\n\n'
 
   while (( elapsed <= max_seconds )); do
-    emit_terminal_progress_updates "$seen_file" "$elapsed"
-    if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+    if install_complete_state; then
+      terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
       return 0
     fi
     if install_failed_state; then
       if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
-        printf '安装未完成，请联系工作人员处理。\n'
+        printf '安装未完成，请联系工作人员处理。\n' >&3
       fi
       return 0
     fi
+    emit_terminal_progress_updates "$seen_file" "$elapsed"
+    emit_download_progress_updates
     if (( elapsed >= max_seconds )); then
       break
     fi
@@ -602,26 +823,32 @@ observe_terminal_background_progress() {
     elapsed=$((elapsed + interval))
     heartbeat_elapsed=$((heartbeat_elapsed + interval))
     if (( heartbeat_elapsed >= heartbeat_seconds )); then
-      terminal_heartbeat_message "$elapsed"
+      if install_complete_state; then
+        terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
+        return 0
+      fi
+      terminal_heartbeat_message "$elapsed" >&3
       heartbeat_elapsed=0
     fi
   done
 
-  emit_terminal_progress_updates "$seen_file" "$elapsed"
-  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+  if install_complete_state; then
+    terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
     return 0
   fi
+  emit_terminal_progress_updates "$seen_file" "$elapsed"
+  emit_download_progress_updates
 
   if background_supervisor_running; then
-    cat <<EOF
+    terminal_heartbeat_message "$elapsed" >&3
+    cat >&3 <<'EOF'
 
-$(terminal_heartbeat_message "$elapsed")
 如果超过 2 分钟没有新进度，可在当前终端运行：
 bash install-xinguang-ai-light.sh status
 不要重复执行安装命令。
 EOF
   else
-    printf '\n安装未完成，请联系工作人员处理。\n'
+    printf '\n安装未完成，请联系工作人员处理。\n' >&3
   fi
 }
 
@@ -655,8 +882,8 @@ observe_background_progress() {
   printf 'PHASE_1_PREP\n' >>"$seen_file"
 
   while (( elapsed <= max_seconds )); do
-    emit_progress_updates "$seen_file"
-    if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+    if install_complete_state; then
+      status_complete_message >&3
       return 0
     fi
     if state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
@@ -666,6 +893,8 @@ observe_background_progress() {
       printf '安装未完成，请联系工作人员处理。\n'
       return 0
     fi
+    emit_progress_updates "$seen_file"
+    emit_download_progress_updates
     if (( elapsed >= max_seconds )); then
       break
     fi
@@ -673,10 +902,12 @@ observe_background_progress() {
     elapsed=$((elapsed + interval))
   done
 
-  emit_progress_updates "$seen_file"
-  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+  if install_complete_state; then
+    status_complete_message >&3
     return 0
   fi
+  emit_progress_updates "$seen_file"
+  emit_download_progress_updates
   if install_failed_state; then
     printf '安装未完成，请联系工作人员处理。\n'
     return 0
@@ -713,7 +944,12 @@ launch_background_supervisor() {
   state_mark_silent BACKGROUND_SUPERVISOR_STARTED
   write_supervisor_launcher "$launcher"
 
-  if [[ -z "$DEEPSEEK_API_KEY" ]] && have systemd-run && systemd-run --user --unit="$unit" --collect --property=Restart=no /bin/bash "$launcher" >/dev/null 2>&1; then
+  if [[ -z "$DEEPSEEK_API_KEY" ]] && have systemd-run &&
+    systemd-run --user --unit="$unit" --collect --property=Restart=no \
+      --setenv="STATE_FILE=$STATE_FILE" \
+      --setenv="LOG_FILE=$LOG_FILE" \
+      --setenv="PID_FILE=$PID_FILE" \
+      /bin/bash "$launcher" >/dev/null 2>&1; then
     start_method="systemd-run --user"
   else
     setsid nohup /bin/bash "$launcher" </dev/null >>"$LOG_FILE" 2>&1 &
@@ -933,22 +1169,138 @@ apt_bootstrap() {
   fi
 }
 
-run_openclaw_installer_with_registry() {
-  local registry="$1"
-  if [[ -n "$registry" ]]; then
-    curl -fsSL https://openclaw.ai/install.sh | env \
-      OPENCLAW_NO_PROMPT=1 \
-      OPENCLAW_NO_ONBOARD=1 \
-      OPENCLAW_INSTALL_METHOD=npm \
-      npm_config_registry="$registry" \
-      bash -s -- --no-onboard --no-prompt --install-method npm
-  else
-    curl -fsSL https://openclaw.ai/install.sh | env \
-      OPENCLAW_NO_PROMPT=1 \
-      OPENCLAW_NO_ONBOARD=1 \
-      OPENCLAW_INSTALL_METHOD=npm \
-      bash -s -- --no-onboard --no-prompt --install-method npm
+download_openclaw_upgrade_script() {
+  local installer="$WORK_DIR/openclaw-install.sh"
+  download_first_with_progress "$installer" "龙虾升级安装器" 0 \
+    "https://openclaw.ai/install.sh" || return 1
+  chmod +x "$installer"
+  printf '%s\n' "$installer"
+}
+
+directory_size_bytes() {
+  local kib
+  [[ -d "$1" ]] || {
+    printf '0\n'
+    return 0
+  }
+  kib="$({ du -sk "$1" 2>/dev/null || true; } | awk 'NR == 1 { print $1 }')"
+  [[ "$kib" =~ ^[0-9]+$ ]] || kib=0
+  printf '%s\n' "$((kib * 1024))"
+}
+
+openclaw_npm_cache_dir() {
+  local cache_dir
+  cache_dir="$(npm config get cache 2>/dev/null || true)"
+  case "$cache_dir" in
+    ""|null|undefined) printf '%s\n' "$HOME/.npm" ;;
+    /*) printf '%s\n' "$cache_dir" ;;
+    *) printf '%s/%s\n' "$PWD" "$cache_dir" ;;
+  esac
+}
+
+openclaw_upgrade_expected_bytes() {
+  if [[ "$OPENCLAW_UPGRADE_EXPECTED_BYTES" =~ ^[0-9]+$ ]] && (( OPENCLAW_UPGRADE_EXPECTED_BYTES > 0 )); then
+    printf '%s\n' "$OPENCLAW_UPGRADE_EXPECTED_BYTES"
+    return 0
   fi
+  printf '0\n'
+}
+
+monitor_openclaw_upgrade_progress() {
+  local installer_pid="$1" cache_dir="$2" baseline_bytes="$3" total_bytes="$4" start_epoch="$5"
+  local now elapsed last_report cache_bytes downloaded_bytes percent remaining_minutes
+  last_report=-12
+
+  while kill -0 "$installer_pid" 2>/dev/null; do
+    now="$(date +%s)"
+    elapsed=$((now - start_epoch))
+    if (( elapsed - last_report >= 12 )); then
+      cache_bytes="$(directory_size_bytes "$cache_dir")"
+      [[ "$cache_bytes" =~ ^[0-9]+$ ]] || cache_bytes=0
+      downloaded_bytes=$((cache_bytes - baseline_bytes))
+      (( downloaded_bytes < 0 )) && downloaded_bytes=0
+      if (( total_bytes > 0 )); then
+        percent=$((downloaded_bytes * 100 / total_bytes))
+        (( percent > 99 )) && percent=99
+        remaining_minutes="$(download_remaining_minutes "$downloaded_bytes" "$total_bytes" "$elapsed")"
+        state_update_download_progress "龙虾升级组件" "$percent" "$downloaded_bytes" "$total_bytes" "$remaining_minutes" "$elapsed"
+        if download_reports_directly; then
+          emit_download_progress_line "$elapsed" "龙虾升级组件" "$percent" "$downloaded_bytes" "$total_bytes" "$remaining_minutes"
+        fi
+      else
+        state_update_download_progress "龙虾升级组件" unknown "$downloaded_bytes" 0 0 "$elapsed"
+        if download_reports_directly; then
+          emit_download_progress_without_total "$elapsed" "龙虾升级组件" "$downloaded_bytes"
+        fi
+      fi
+      last_report="$elapsed"
+    fi
+    sleep 1
+  done
+}
+
+complete_openclaw_upgrade_progress() {
+  local cache_dir="$1" baseline_bytes="$2" total_bytes="$3" start_epoch="$4"
+  local now elapsed cache_bytes downloaded_bytes
+  now="$(date +%s)"
+  elapsed=$((now - start_epoch))
+  cache_bytes="$(directory_size_bytes "$cache_dir")"
+  [[ "$cache_bytes" =~ ^[0-9]+$ ]] || cache_bytes=0
+  downloaded_bytes=$((cache_bytes - baseline_bytes))
+  (( downloaded_bytes < 0 )) && downloaded_bytes=0
+  if (( total_bytes > 0 )); then
+    (( downloaded_bytes > total_bytes )) && total_bytes="$downloaded_bytes"
+    state_update_download_progress "龙虾升级组件" 100 "$downloaded_bytes" "$total_bytes" 0 "$elapsed"
+    if download_reports_directly; then
+      emit_download_progress_line "$elapsed" "龙虾升级组件" 100 "$downloaded_bytes" "$total_bytes" 0
+    fi
+  else
+    state_update_download_progress "龙虾升级组件" unknown "$downloaded_bytes" 0 0 "$elapsed"
+    if download_reports_directly; then
+      emit_download_progress_without_total "$elapsed" "龙虾升级组件" "$downloaded_bytes"
+    fi
+  fi
+}
+
+run_openclaw_installer_command() {
+  local registry="$1" installer="$2"
+  if [[ -n "$registry" ]]; then
+    env \
+      OPENCLAW_NO_PROMPT=1 \
+      OPENCLAW_NO_ONBOARD=1 \
+      OPENCLAW_INSTALL_METHOD=npm \
+      npm_config_progress=false \
+      npm_config_registry="$registry" \
+      bash -s -- --no-onboard --no-prompt --install-method npm <"$installer"
+  else
+    env \
+      OPENCLAW_NO_PROMPT=1 \
+      OPENCLAW_NO_ONBOARD=1 \
+      OPENCLAW_INSTALL_METHOD=npm \
+      npm_config_progress=false \
+      bash -s -- --no-onboard --no-prompt --install-method npm <"$installer"
+  fi
+}
+
+run_openclaw_installer_with_registry() {
+  local registry="$1" installer="$2"
+  local cache_dir baseline_bytes total_bytes start_epoch installer_pid
+  cache_dir="$(openclaw_npm_cache_dir)"
+  baseline_bytes="$(directory_size_bytes "$cache_dir")"
+  total_bytes="$(openclaw_upgrade_expected_bytes || true)"
+  [[ "$total_bytes" =~ ^[0-9]+$ ]] || total_bytes=0
+  start_epoch="$(date +%s)"
+
+  run_openclaw_installer_command "$registry" "$installer" &
+  installer_pid=$!
+
+  monitor_openclaw_upgrade_progress "$installer_pid" "$cache_dir" "$baseline_bytes" "$total_bytes" "$start_epoch"
+
+  if wait "$installer_pid"; then
+    complete_openclaw_upgrade_progress "$cache_dir" "$baseline_bytes" "$total_bytes" "$start_epoch"
+    return 0
+  fi
+  return 1
 }
 
 accept_openclaw_if_available() {
@@ -971,24 +1323,25 @@ accept_openclaw_if_available() {
 }
 
 run_openclaw_installer() {
-  local registry
+  local registry installer
+  installer="$(download_openclaw_upgrade_script)" || return 1
   registry="$(select_npm_registry)"
   if [[ -n "$registry" ]]; then
     log "Using npm registry: $registry"
-    if ! run_openclaw_installer_with_registry "$registry"; then
+    if ! run_openclaw_installer_with_registry "$registry" "$installer"; then
       log "OpenClaw install/update command returned non-zero with npm mirror; checking installed command"
       if accept_openclaw_if_available; then
         log "Continuing because OpenClaw is already usable after installer warning"
         return 0
       fi
       log "Retrying OpenClaw install/update with official npm registry"
-      if ! run_openclaw_installer_with_registry ""; then
+      if ! run_openclaw_installer_with_registry "" "$installer"; then
         accept_openclaw_if_available || return 1
         log "Continuing because OpenClaw is usable after official-registry installer warning"
       fi
     fi
   else
-    if ! run_openclaw_installer_with_registry ""; then
+    if ! run_openclaw_installer_with_registry "" "$installer"; then
       accept_openclaw_if_available || return 1
       log "Continuing because OpenClaw is usable after installer warning"
     fi
@@ -1187,9 +1540,9 @@ preload_miloco_bundle() {
   fi
 
   if [[ "$archive" != "$persistent_archive" ]]; then
-    log "正在下载灯光插件组件"
+    log "正在下载Miloco组件包"
     mapfile -t urls < <(miloco_bundle_urls "$manifest" "$bundle_name" | rank_urls_by_speed "灯光插件组件" 1)
-    download_first "$archive" "${urls[@]}" || die "灯光插件组件下载失败"
+    download_first_with_progress "$archive" "Miloco组件包" "$bundle_size" "${urls[@]}" || die "灯光插件组件下载失败"
 
     local actual_sha
     actual_sha="$(sha256_file "$archive")"
@@ -2981,7 +3334,7 @@ run_status_report() {
     return
   fi
 
-  if state_has STEP_6_DONE || state_has SUCCESS_ACTIVE || state_has SUCCESS_AFTER_RECONNECT; then
+  if install_complete_state; then
     status_complete_message
   elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
     status_restart_message

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.0.0"
+XINGUANG_PANEL_VERSION="1.0.1"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -18,6 +18,17 @@ TEST_PALETTES=(
   '海洋|#176B9D|#26B8B5'
 )
 HEALTH_FIRST_ERROR=""
+HEALTH_INSTALL_SCRIPT_OK=1
+HEALTH_GATEWAY_OK=1
+HEALTH_MIHOME_OK=1
+HEALTH_SKILL_OK=1
+HEALTH_LIGHT_SERVICE_OK=1
+HEALTH_DEVICE_OK=1
+HEALTH_DEVICE_OFFLINE_COUNT=0
+HEALTH_DEVICE_ONLINE_COUNT=0
+HEALTH_DEVICE_UNKNOWN_COUNT=0
+HEALTH_DEVICE_EMPTY=0
+HEALTH_DEVICE_FETCH_FAILED=0
 WAINFORT_API_TOKEN=""
 WAINFORT_MILOCO_TOKEN=""
 WAINFORT_API_PORT=1888
@@ -341,10 +352,12 @@ health_error() {
 
 check_install_script() {
   local local_version remote_version
+  HEALTH_INSTALL_SCRIPT_OK=1
   local_version="$(installed_script_version || true)"
   remote_version="$(online_script_version || true)"
   if [[ -z "$local_version" ]]; then
     printf '❌ 安装脚本      未找到（请执行“更新到最新版”）\n'
+    HEALTH_INSTALL_SCRIPT_OK=0
     health_error "请执行“更新到最新版”。"
   elif [[ -z "$remote_version" ]]; then
     printf '⚠️ 安装脚本      %s（无法检查更新）\n' "$local_version"
@@ -352,17 +365,20 @@ check_install_script() {
     printf '✅ 安装脚本      %s（最新）\n' "$local_version"
   else
     printf '❌ 安装脚本      %s（可更新到 %s）\n' "$local_version" "$remote_version"
+    HEALTH_INSTALL_SCRIPT_OK=0
     health_error "请执行“更新到最新版”。"
   fi
 }
 
 check_skill() {
   local local_version remote_version
+  HEALTH_SKILL_OK=1
   local_version=""
   [[ -f "$SKILL_FILE" ]] && local_version="$(extract_skill_version "$SKILL_FILE" || true)"
   remote_version="$(online_skill_version || true)"
   if [[ -z "$local_version" ]]; then
     printf '❌ 馨光 Skill    未安装（请在龙虾对话里安装 Skill）\n'
+    HEALTH_SKILL_OK=0
     health_error "请在龙虾对话里安装馨光 Skill。"
   elif [[ -z "$remote_version" ]]; then
     printf '⚠️ 馨光 Skill    %s（无法检查更新）\n' "$local_version"
@@ -370,22 +386,26 @@ check_skill() {
     printf '✅ 馨光 Skill    %s（最新）\n' "$local_version"
   else
     printf '❌ 馨光 Skill    %s（可更新到 %s）\n' "$local_version" "$remote_version"
+    HEALTH_SKILL_OK=0
     health_error "请在龙虾对话里重新安装馨光 Skill。"
   fi
 }
 
 check_gateway() {
+  HEALTH_GATEWAY_OK=1
   if command -v systemctl >/dev/null 2>&1 &&
     systemctl --user is-active --quiet openclaw-gateway.service >/dev/null 2>&1; then
     printf '✅ 龙虾网关      运行中\n'
   else
     printf '❌ 龙虾网关      未运行\n'
+    HEALTH_GATEWAY_OK=0
     health_error "请先重启龙虾网关。"
   fi
 }
 
 check_light_service() {
   local service_ok port_ok
+  HEALTH_LIGHT_SERVICE_OK=1
   service_ok=0
   port_ok=0
   if command -v systemctl >/dev/null 2>&1 &&
@@ -400,12 +420,14 @@ check_light_service() {
     printf '✅ 灯光服务      systemd 托管，运行中\n'
   else
     printf '❌ 灯光服务      未就绪\n'
+    HEALTH_LIGHT_SERVICE_OK=0
     health_error "请执行“更新到最新版”后重新检查灯光服务。"
   fi
 }
 
 check_mihome_binding() {
   local homes_file rows_file active_home bound
+  HEALTH_MIHOME_OK=1
   homes_file="$(panel_temp_file)"
   rows_file="$(panel_temp_file)"
   active_home=""
@@ -422,6 +444,7 @@ check_mihome_binding() {
     printf '✅ 米家账号      已绑定（当前家庭未确认）\n'
   else
     printf '❌ 米家账号      未绑定\n'
+    HEALTH_MIHOME_OK=0
     health_error "请在龙虾对话里绑定米家账号并选择家庭。"
   fi
 }
@@ -447,14 +470,27 @@ PY
 }
 
 check_saving_mode() {
-  local cron_list
+  local cron_list timer_enabled timer_active cron_checked
   cron_list=""
-  if cron_guard_timer_active &&
-    cron_list="$(runtime_command openclaw cron list 2>/dev/null)" &&
-    ! grep -q 'miloco-' <<<"$cron_list"; then
+  timer_enabled=0
+  timer_active=0
+  cron_checked=0
+
+  # 先完成 timer 与 cron 两项同步读取，再统一渲染，避免出现瞬时中间态。
+  cron_guard_timer_enabled && timer_enabled=1
+  cron_guard_timer_active && timer_active=1
+  if cron_list="$(runtime_command openclaw cron list 2>/dev/null)"; then
+    cron_checked=1
+  fi
+
+  if (( timer_enabled && timer_active && cron_checked )) && ! grep -q 'miloco-' <<<"$cron_list"; then
     printf '✅ 后台省钱      看门狗值守中，模型任务已关\n'
-  elif cron_guard_timer_enabled; then
-    printf '⚠️ 后台省钱      正在检查后台任务\n'
+  elif (( timer_enabled && timer_active && cron_checked )); then
+    printf '⚠️ 后台省钱      后台模型任务仍在运行，视觉感知可能产生费用\n'
+  elif (( timer_enabled && timer_active )); then
+    printf '⚠️ 后台省钱      后台任务状态未确认，请稍后重新体检\n'
+  elif (( timer_enabled )); then
+    printf '⚠️ 后台省钱      定时器未正常运行，请稍后重新体检\n'
   else
     printf '⚠️ 后台省钱      视觉感知已开启，后台模型任务可能产生费用\n'
   fi
@@ -462,10 +498,18 @@ check_saving_mode() {
 
 print_device_list() {
   local devices_file rows_file did name room online power
+  HEALTH_DEVICE_OK=1
+  HEALTH_DEVICE_OFFLINE_COUNT=0
+  HEALTH_DEVICE_ONLINE_COUNT=0
+  HEALTH_DEVICE_UNKNOWN_COUNT=0
+  HEALTH_DEVICE_EMPTY=0
+  HEALTH_DEVICE_FETCH_FAILED=0
   devices_file="$(panel_temp_file)"
   rows_file="$(panel_temp_file)"
   if ! fetch_devices_json "$devices_file"; then
     rm -f "$devices_file" "$rows_file"
+    HEALTH_DEVICE_OK=0
+    HEALTH_DEVICE_FETCH_FAILED=1
     printf '❌ 设备          暂时无法读取，请检查米家绑定和灯光服务。\n'
     return 1
   fi
@@ -473,12 +517,15 @@ print_device_list() {
   rm -f "$devices_file"
   if [[ ! -s "$rows_file" ]]; then
     rm -f "$rows_file"
+    HEALTH_DEVICE_OK=0
+    HEALTH_DEVICE_EMPTY=1
     printf '⚠️ 设备          当前家庭未读取到馨光灯。\n'
     return 0
   fi
   while IFS=$'\t' read -r did name room online; do
     case "$online" in
       online)
+        HEALTH_DEVICE_ONLINE_COUNT=$((HEALTH_DEVICE_ONLINE_COUNT + 1))
         power="$(device_power_state "$did")"
         case "$power" in
           true) printf '✅ %s（%s）          在线，已开启\n' "$name" "$room" ;;
@@ -486,31 +533,63 @@ print_device_list() {
           *) printf '⚠️ %s（%s）          在线，开关未确认\n' "$name" "$room" ;;
         esac
         ;;
-      offline) printf '⚠️ %s（%s）          离线（请检查电源）\n' "$name" "$room" ;;
-      *) printf '⚠️ %s（%s）          在线状态未确认\n' "$name" "$room" ;;
+      offline)
+        HEALTH_DEVICE_OFFLINE_COUNT=$((HEALTH_DEVICE_OFFLINE_COUNT + 1))
+        printf '⚠️ %s（%s）          离线（请检查电源）\n' "$name" "$room"
+        ;;
+      *)
+        HEALTH_DEVICE_UNKNOWN_COUNT=$((HEALTH_DEVICE_UNKNOWN_COUNT + 1))
+        printf '⚠️ %s（%s）          在线状态未确认\n' "$name" "$room"
+        ;;
     esac
   done <"$rows_file"
   rm -f "$rows_file"
+
+  if (( HEALTH_DEVICE_UNKNOWN_COUNT > 0 || HEALTH_DEVICE_ONLINE_COUNT == 0 )); then
+    HEALTH_DEVICE_OK=0
+  fi
+}
+
+health_dependency_conclusion() {
+  if (( HEALTH_INSTALL_SCRIPT_OK == 0 )); then
+    printf '体检结论：请执行“更新到最新版”。\n'
+  elif (( HEALTH_GATEWAY_OK == 0 )); then
+    printf '体检结论：请先重启龙虾网关。\n'
+  elif (( HEALTH_MIHOME_OK == 0 )); then
+    printf '体检结论：请在龙虾对话里绑定米家账号并选择家庭。\n'
+  elif (( HEALTH_SKILL_OK == 0 )); then
+    printf '体检结论：请在龙虾对话里安装馨光 Skill。\n'
+  elif (( HEALTH_LIGHT_SERVICE_OK == 0 )); then
+    printf '体检结论：请执行“更新到最新版”后重新检查灯光服务。\n'
+  elif (( HEALTH_DEVICE_FETCH_FAILED )); then
+    printf '体检结论：请确认米家账号绑定和灯光服务后重新体检。\n'
+  elif (( HEALTH_DEVICE_EMPTY )); then
+    printf '体检结论：请确认当前家庭已选择并包含馨光灯。\n'
+  elif (( HEALTH_DEVICE_UNKNOWN_COUNT > 0 )); then
+    printf '体检结论：请检查灯具网络后重新体检。\n'
+  elif (( HEALTH_DEVICE_OFFLINE_COUNT > 0 && HEALTH_DEVICE_ONLINE_COUNT == 0 )); then
+    printf '体检结论：请检查全部灯具电源后重新体检。\n'
+  elif (( HEALTH_DEVICE_OFFLINE_COUNT > 0 )); then
+    printf '体检结论：基本正常：%s 盏灯离线（请检查电源），其余可正常使用\n' "$HEALTH_DEVICE_OFFLINE_COUNT"
+  else
+    printf '体检结论：一切正常，可直接使用。\n'
+  fi
 }
 
 run_health_check() {
   HEALTH_FIRST_ERROR=""
   printf '\n一键体检\n'
   check_install_script
-  check_skill
   check_gateway
-  check_light_service
   check_mihome_binding
+  check_skill
+  check_light_service
+  if ! print_device_list; then
+    HEALTH_DEVICE_OK=0
+  fi
   check_mimo_key
   check_saving_mode
-  if ! print_device_list; then
-    health_error "请确认米家账号绑定和灯光服务后重新体检。"
-  fi
-  if [[ -z "$HEALTH_FIRST_ERROR" ]]; then
-    printf '体检结论：一切正常，可直接使用。\n'
-  else
-    printf '体检结论：%s\n' "$HEALTH_FIRST_ERROR"
-  fi
+  health_dependency_conclusion
 }
 
 first_online_on_device() {
@@ -982,7 +1061,7 @@ run_redaction_demo() {
 
 print_menu() {
   printf '\n========================================\n'
-  printf '  馨光 AI 灯光 · 维护面板  v1.0\n'
+  printf '  馨光 AI 灯光 · 维护面板  v%s\n' "$XINGUANG_PANEL_VERSION"
   printf '========================================\n'
   printf '  1. 一键体检          （查所有组件，红绿灯结论）\n'
   printf '  2. 灯光测试          （随机效果打到一盏在线灯，眼见为实）\n'
