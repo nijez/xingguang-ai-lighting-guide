@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.17"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.18"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -45,9 +45,11 @@ HOME_SWITCH_RESULT="$INSTALL_DIR/home-switch-result.txt"
 TARGET_HOME_FILE="${TARGET_HOME_FILE:-$XINGUANG_BASE_DIR/target-home.env}"
 DEVICE_REPORT="$INSTALL_DIR/device-report.txt"
 
-mkdir -p "$(dirname "$LOG_FILE")" "$INSTALL_DIR" "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR"
-touch "$LOG_FILE"
-exec > >(tee -a "$LOG_FILE") 2>&1
+if [[ "$INSTALL_ACTION" != "status" ]]; then
+  mkdir -p "$(dirname "$LOG_FILE")" "$INSTALL_DIR" "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR"
+  touch "$LOG_FILE"
+  exec > >(tee -a "$LOG_FILE") 2>&1
+fi
 
 log() {
   printf '[%s] %s\n' "$(date '+%F %T %Z')" "$*" >&2
@@ -1312,73 +1314,93 @@ record_light_result() {
   esac
 }
 
+status_target_home_name() {
+  [[ -f "$TARGET_HOME_FILE" ]] || return 1
+
+  if have python3; then
+    python3 - "$TARGET_HOME_FILE" <<'PY'
+import shlex
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as config_file:
+        for line in config_file:
+            if not line.startswith("XINGUANG_TARGET_HOME="):
+                continue
+            value = line.split("=", 1)[1].strip()
+            parsed = shlex.split(value, posix=True)
+            if len(parsed) == 1 and parsed[0]:
+                print(parsed[0])
+                raise SystemExit(0)
+except (OSError, ValueError):
+    pass
+
+raise SystemExit(1)
+PY
+    return
+  fi
+
+  sed -n 's/^XINGUANG_TARGET_HOME=//p' "$TARGET_HOME_FILE" | head -n 1
+}
+
 print_status() {
-  load_env_if_present
-  local ready=0
-  if { server_status_ok || server_process_running; } &&
-    { [[ -f "$LOCAL_SKILL_FILE" ]] || status_file_has SKILL_INSTALL_DONE; }; then
-    ready=1
+  local installed_version family_name="未设置" family_configured=0
+  local systemd_state="未检测到 systemd" systemd_raw conclusion
+
+  if [[ -f "$TARGET_HOME_FILE" ]]; then
+    family_configured=1
+    family_name="$(status_target_home_name 2>/dev/null || true)"
+    [[ -n "$family_name" ]] || family_name="已设置（家庭名未读取到）"
   fi
 
-  if status_file_has HOME_SELECTION_REQUIRED; then
-    printf '检测到多个家庭，请选择馨光设备所在家庭：\n\n'
-    if [[ -f "$HOME_LIST_CACHE" ]]; then
-      print_home_list
-    fi
-    return 0
-  fi
-  if status_file_has TARGET_HOME_NOT_FOUND; then
-    printf '未找到该家庭，请重新选择。\n'
-    return 0
-  fi
-
-  if status_file_has PHYSICAL_CHANGED; then
-    printf '测试成功。\n'
-    printf '\n如果当前效果满意，也可以说：保存当前灯光效果到快照 3。\n'
-    return 0
-  fi
-  if status_file_has PHYSICAL_NOT_CHANGED; then
-    printf '测试未通过，请联系工作人员处理。\n'
-    return 0
-  fi
-  if status_file_has LIGHT_TEST_SUCCESS; then
-    printf '测试成功。\n'
-    printf '\n如果当前效果满意，也可以说：保存当前灯光效果到快照 3。\n'
-    return 0
-  fi
-  if status_file_has LIGHT_TEST_FAILED; then
-    printf '测试未通过，请联系工作人员处理。\n'
-    return 0
-  fi
-  if status_file_has LIGHT_REQUEST_SENT; then
-    printf '灯光请求已发送，请观察灯光是否变化。\n'
-    printf '如果已变化，请回复：已变化。\n'
-    printf '如果未变化，请回复：未变化。\n'
-    return 0
-  fi
-  if status_file_has WAINFORT_SERVER_DATA_DIR_UNSUPPORTED || status_file_has WAINFORT_SERVER_START_FAILED; then
-    printf '灯光服务暂时无法启动，请联系工作人员处理。\n'
-    return 0
+  installed_version="$(installed_skill_version)"
+  if have systemctl; then
+    systemd_raw="$(systemctl is-active xinguang-wainfort.service 2>/dev/null || true)"
+    case "$systemd_raw" in
+      active) systemd_state="运行中" ;;
+      inactive) systemd_state="未运行" ;;
+      failed) systemd_state="启动失败" ;;
+      activating) systemd_state="启动中" ;;
+      deactivating) systemd_state="停止中" ;;
+      *) systemd_state="未安装或无法读取" ;;
+    esac
   fi
 
-  if (( ready == 1 )); then
-    cat <<'EOF'
-馨光 Skill 已安装，可以开始测试灯光。
-
-你可以说：
-客厅来个马尔代夫的海边日落
-EOF
+  printf '馨光 Skill 安装状态（只读）：\n'
+  printf '最近状态：\n'
+  if [[ -s "$STATE_FILE" ]]; then
+    tail -n 5 "$STATE_FILE" 2>/dev/null || printf '状态记录读取失败。\n'
   else
-    printf '正在安装馨光 Skill。\n'
+    printf '暂无状态记录。\n'
   fi
+  if [[ -n "$installed_version" ]]; then
+    printf '已装 Skill 版本：%s\n' "$installed_version"
+  else
+    printf '已装 Skill 版本：未检测到\n'
+  fi
+  printf '家庭配置：%s\n' "$family_name"
+  printf '灯光服务 systemd 状态：%s\n' "$systemd_state"
+
+  if status_file_has XINGUANG_SKILL_INSTALL_DONE ||
+    { [[ -n "$installed_version" ]] && { [[ "$systemd_state" == "运行中" ]] || server_process_running; }; }; then
+    conclusion="已完成"
+  elif (( family_configured == 0 )) && status_file_has HOME_SELECTION_REQUIRED; then
+    conclusion="需要选择家庭"
+  elif [[ -f "$STATE_FILE" ]] || [[ -n "$installed_version" ]] || [[ "$systemd_state" == "运行中" ]] || server_process_running; then
+    conclusion="进行中"
+  else
+    conclusion="未开始"
+  fi
+
+  printf '\n安装状态：%s\n' "$conclusion"
 }
 
 main() {
-  load_target_home_if_present
   if [[ "$INSTALL_ACTION" == "status" ]]; then
     print_status
     return 0
   fi
+  load_target_home_if_present
   if [[ "$INSTALL_ACTION" == "preinstall" ]]; then
     printf '%s\n' "$$" >"$PID_FILE"
     printf '正在安装馨光 Skill。\n'
