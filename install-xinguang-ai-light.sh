@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-25.41"
-INSTALLER_VERSION="2026-06-25.41"
+ENTRY_VERSION="2026-06-25.42"
+INSTALLER_VERSION="2026-06-25.42"
 TARGET="${TARGET:-/tmp/xinguang-light-install.sh}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 LOG_FILE="${LOG_FILE:-/tmp/xinguang-light-install-current.log}"

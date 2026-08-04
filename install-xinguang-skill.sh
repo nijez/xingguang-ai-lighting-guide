@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.16"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.17"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -121,10 +121,63 @@ generate_token() {
   printf 'wainfort-ai-2026-%s\n' "$suffix"
 }
 
+read_miloco_token_from_config() {
+  python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    with open(os.path.expanduser("~/.openclaw/miloco/config.json"), encoding="utf-8") as config_file:
+        token = json.load(config_file).get("server", {}).get("token", "")
+    if isinstance(token, str) and token and "\n" not in token and "\r" not in token:
+        sys.stdout.write(token)
+except (OSError, ValueError, AttributeError):
+    pass
+PY
+}
+
+refill_empty_env_miloco_token() {
+  [[ -f "$ENV_FILE" ]] || return 0
+  grep -Eq '^WAINFORT_MILOCO_TOKEN=[[:space:]]*$' "$ENV_FILE" || return 0
+
+  local miloco_token
+  miloco_token="$(read_miloco_token_from_config 2>/dev/null || true)"
+  [[ -n "$miloco_token" ]] || return 0
+
+  WAINFORT_MILOCO_TOKEN="$miloco_token" python3 - "$ENV_FILE" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+token = os.environ["WAINFORT_MILOCO_TOKEN"]
+with open(path, encoding="utf-8") as env_file:
+    lines = env_file.readlines()
+
+replaced = False
+with open(path, "w", encoding="utf-8") as env_file:
+    for line in lines:
+        value = line.rstrip("\r\n")
+        if value.startswith("WAINFORT_MILOCO_TOKEN=") and not value.split("=", 1)[1].strip():
+            env_file.write(f"WAINFORT_MILOCO_TOKEN={token}\n")
+            replaced = True
+        else:
+            env_file.write(line)
+
+if not replaced:
+    raise SystemExit(1)
+PY
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  export WAINFORT_MILOCO_TOKEN="$miloco_token"
+  state_mark ENV_MILOCO_TOKEN_REFILLED
+  log "检测到旧配置缺少 Miloco 服务凭据，已从现有配置回填，继续启动。"
+}
+
 ensure_env_file() {
   mkdir -p "$INSTALL_DIR" "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR"
   chmod 700 "$INSTALL_DIR" 2>/dev/null || true
   chmod 700 "$XINGUANG_BASE_DIR" "$WAINFORT_DATA_DIR" "$WAINFORT_CONFIG_DIR" "$WAINFORT_CACHE_DIR" "$WAINFORT_LOG_DIR" 2>/dev/null || true
+  refill_empty_env_miloco_token
 
   local token="${WAINFORT_API_TOKEN:-}"
   if [[ "$ROTATE_WAINFORT_TOKEN" != 1 && -f "$ENV_FILE" ]]; then
@@ -136,7 +189,7 @@ ensure_env_file() {
 
   local miloco_token="${WAINFORT_MILOCO_TOKEN:-}"
   if [[ -z "$miloco_token" ]]; then
-    miloco_token="$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.openclaw/miloco/config.json'))); print(d['server']['token'])" 2>/dev/null || true)"
+    miloco_token="$(read_miloco_token_from_config 2>/dev/null || true)"
   fi
 
   umask 077
@@ -184,7 +237,18 @@ download_skill() {
   download_file "$PUBLIC_SKILL_DIR/SKILL.md" "${urls[@]}" || die "馨光 Skill 文件下载失败"
 
   grep -q "^name: $SKILL_NAME$" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 名称校验失败"
-  XINGUANG_SKILL_VERSION="$(python3 - "$PUBLIC_SKILL_DIR/SKILL.md" <<'PY'
+  XINGUANG_SKILL_VERSION="$(skill_metadata_version "$PUBLIC_SKILL_DIR/SKILL.md" 2>/dev/null || true)"
+  [[ -n "$XINGUANG_SKILL_VERSION" ]] || die "馨光 Skill 版本信息缺失"
+  grep -q "$SKILL_COMPANY" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 公司信息校验失败"
+  state_mark "SKILL_VERSION_FETCHED=$XINGUANG_SKILL_VERSION"
+  state_mark SKILL_DOWNLOAD_DONE
+}
+
+skill_metadata_version() {
+  local skill_file="$1"
+  [[ -f "$skill_file" ]] || return 1
+
+  python3 - "$skill_file" <<'PY'
 import json
 import sys
 
@@ -203,11 +267,10 @@ if lines and lines[0] == "---":
                 pass
             break
 PY
-)"
-  [[ -n "$XINGUANG_SKILL_VERSION" ]] || die "馨光 Skill 版本信息缺失"
-  grep -q "$SKILL_COMPANY" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 公司信息校验失败"
-  state_mark "SKILL_VERSION_FETCHED=$XINGUANG_SKILL_VERSION"
-  state_mark SKILL_DOWNLOAD_DONE
+}
+
+installed_skill_version() {
+  skill_metadata_version "$HOME/.openclaw/skills/$SKILL_NAME/SKILL.md" 2>/dev/null || true
 }
 
 prepare_local_skill() {
@@ -291,27 +354,50 @@ skill_install_verified() {
 }
 
 install_skill() {
+  local installed_version online_version verified_version skill_verified=0
+  online_version="${XINGUANG_SKILL_VERSION:-}"
+  [[ -n "$online_version" ]] || die "馨光 Skill 版本信息缺失"
+  installed_version="$(installed_skill_version)"
+
   if skill_install_verified; then
+    skill_verified=1
+  fi
+
+  if [[ "$skill_verified" == 1 && -n "$installed_version" && "$installed_version" == "$online_version" ]]; then
+    log "馨光 Skill 已是最新版本，跳过（版本 $online_version）。"
     state_mark SKILL_INSTALL_DONE
     state_mark SKILL_INSTALL_VERIFIED
     return 0
+  fi
+
+  if [[ "$skill_verified" == 1 ]]; then
+    if [[ -n "$installed_version" ]]; then
+      log "检测到新版本 $installed_version→$online_version，正在更新。"
+    else
+      log "检测到已安装的馨光 Skill 版本无法识别，正在更新至 $online_version。"
+    fi
+  else
+    log "正在安装馨光 Skill（版本 $online_version）。"
   fi
 
   prepare_local_skill
   if ! install_skill_with_openclaw_command; then
     if [[ "$SKILL_INSTALL_OUTPUT" == *"already exists"* ]]; then
-      retry_existing_skill_install || true
+      if ! retry_existing_skill_install; then
+        log "警告：现有馨光 Skill 刷新命令未完成，正在进行版本校验。"
+      fi
     fi
   fi
 
   reload_openclaw_best_effort
-  if skill_install_verified; then
+  verified_version="$(installed_skill_version)"
+  if skill_install_verified && [[ -n "$verified_version" && "$verified_version" == "$online_version" ]]; then
     state_mark SKILL_INSTALL_DONE
     state_mark SKILL_INSTALL_VERIFIED
     return 0
   fi
 
-  die "馨光 Skill 安装失败，请联系工作人员处理。"
+  die "馨光 Skill 安装后版本校验失败，请联系工作人员处理。"
 }
 
 verify_server_checksum() {
@@ -608,6 +694,49 @@ start_server_with_nohup_fallback() {
   exit 1
 }
 
+migrate_healthy_nohup_server_to_systemd() {
+  local service_name="xinguang-wainfort"
+  local service_file="/etc/systemd/system/${service_name}.service"
+  local i
+
+  sudo_available && have systemctl && have pkill || return 1
+  sudo systemctl is-active --quiet "${service_name}.service" && return 0
+
+  if ! write_wainfort_systemd_unit "$service_file" ubuntu "$ENV_FILE"; then
+    log "警告：无法写入灯光服务的系统服务配置，保留当前运行状态。"
+    return 1
+  fi
+  if [[ "$WAINFORT_SYSTEMD_UNIT_CHANGED" == 1 ]] && ! sudo systemctl daemon-reload >/dev/null 2>&1; then
+    log "警告：系统服务配置刷新失败，保留当前运行状态。"
+    return 1
+  fi
+
+  log "检测到旧灯光服务正在运行，正在迁移为系统服务托管。"
+  if ! pkill -x wainfort-server; then
+    log "警告：旧灯光服务进程未停止，保留当前运行状态。"
+    return 1
+  fi
+  rm -f "$SERVER_PID_FILE"
+
+  if sudo systemctl enable --now "${service_name}.service" >/dev/null 2>&1; then
+    for i in $(seq 1 30); do
+      if server_status_ok; then
+        state_mark SYSTEMD_SERVICE_ENABLED
+        state_mark WAINFORT_SERVER_READY
+        log "灯光服务已迁移为系统服务托管"
+        printf '灯光服务已就绪。\n'
+        return 0
+      fi
+      sleep 2
+    done
+  fi
+
+  log "警告：系统服务迁移验证失败，正在回退为 nohup 启动灯光服务。"
+  sudo systemctl disable --now "${service_name}.service" >/dev/null 2>&1 ||
+    sudo systemctl stop "${service_name}.service" >/dev/null 2>&1 || true
+  start_server_with_nohup_fallback
+}
+
 start_server() {
   load_env_if_present
   printf '正在准备灯光服务。\n'
@@ -617,6 +746,17 @@ start_server() {
   fi
   if server_status_ok; then
     server_debug "health check: ok before start"
+    if sudo_available && have systemctl &&
+      ! sudo systemctl is-active --quiet xinguang-wainfort.service; then
+      if migrate_healthy_nohup_server_to_systemd; then
+        return 0
+      fi
+      if ! server_status_ok; then
+        log "警告：旧灯光服务在迁移过程中停止，正在回退为 nohup 启动。"
+        start_server_with_nohup_fallback
+        return 0
+      fi
+    fi
     state_mark SERVER_ALREADY_RUNNING
     state_mark WAINFORT_SERVER_READY
     printf '灯光服务已就绪。\n'
@@ -1247,6 +1387,7 @@ main() {
 
     check_first_stage_ready
     ensure_env_file
+    # 每次重跑都重新下载线上 Skill，版本比较不依赖状态文件。
     download_skill
     download_server
     start_server
@@ -1276,6 +1417,7 @@ EOF
   check_first_stage_ready
   check_home_selection_before_install
   ensure_env_file
+  # 每次重跑都重新下载线上 Skill，版本比较不依赖状态文件。
   download_skill
   download_server
   start_server
