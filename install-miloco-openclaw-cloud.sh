@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.46"
+SCRIPT_VERSION="2026-06-25.47"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -47,6 +47,7 @@ STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.19}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.19}"
 XINGUANG_PANEL_VERSION="1.0.1"
+XINGUANG_SHOW_VERSION="1.0.0"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 absolute_path() {
@@ -3140,6 +3141,34 @@ prepare_xinguang_panel() {
   chmod +x "$panel" "$path_panel"
 }
 
+prepare_xinguang_show() {
+  local install_dir bin_dir show path_show show_dir show_data show_header
+  install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
+  bin_dir="$HOME/.local/bin"
+  show="$install_dir/xinguang-show"
+  path_show="$bin_dir/xinguang-show"
+  show_dir="$install_dir/shows"
+  show_data="$show_dir/chuantongse.show"
+
+  mkdir -p "$install_dir" "$bin_dir" "$show_dir"
+
+  download_versioned_file "$show" "XINGUANG_SHOW_VERSION=\"$XINGUANG_SHOW_VERSION\"" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-show.sh" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-show.sh" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-show.sh" ||
+    die
+
+  cp "$show" "$path_show" || die
+  chmod +x "$show" "$path_show"
+
+  show_header="$(printf '#秀名\t中国传统色十景')"
+  download_versioned_file "$show_data" "$show_header" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/shows/chuantongse.show" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/chuantongse.show" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/chuantongse.show" ||
+    die
+}
+
 run_full_deploy() {
   local step_start
   TOTAL_STEPS=6
@@ -3212,6 +3241,7 @@ run_full_deploy() {
   fi
 
   prepare_xinguang_panel
+  prepare_xinguang_show
   prepare_xinguang_set_chat_model_helper
   configure_deepseek_chat_model_if_requested
 
