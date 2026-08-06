@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.1.0"
+XINGUANG_SHOW_VERSION="1.2.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -73,63 +73,39 @@ valid_pair() {
   valid_color "${c0:-}" && valid_color "${c1:-}"
 }
 
-# 色距硬校验（纯本地 colorsys）：
-#   a) 主色对 color0 与辅色对 color0：HSV 色相差 >=60 度 或 明度差 >=0.4（满足其一）
-#   b) 每组色对内部 color0 与 color1：RGB 欧氏距离 >=60（0-441 尺度）
-# 输出为空表示通过；否则逐行输出 CROSS/PAIR 违规明细
+# 色距硬校验（纯本地）：色对内部 color0 与 color1 的 RGB 欧氏距离 >=60（0-441 尺度），
+# 保证渐变看得出来。输出为空表示通过；不过时输出实际距离。
 scene_color_report() {
-  python3 - "$1" "$2" <<'PY'
-import colorsys
+  python3 - "$1" <<'PY'
 import sys
 
 def rgb(color):
     return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
 
-def parse(pair):
-    first, second = pair.split(",")
-    return rgb(first), rgb(second)
-
-m0, m1 = parse(sys.argv[1])
-a0, a1 = parse(sys.argv[2])
-
-def dist(p, q):
-    return sum((x - y) ** 2 for x, y in zip(p, q)) ** 0.5
-
-hm, _, vm = colorsys.rgb_to_hsv(*[x / 255 for x in m0])
-ha, _, va = colorsys.rgb_to_hsv(*[x / 255 for x in a0])
-hue_diff = abs(hm - ha) * 360
-if hue_diff > 180:
-    hue_diff = 360 - hue_diff
-v_diff = abs(vm - va)
+first, second = sys.argv[1].split(",")
+p, q = rgb(first), rgb(second)
+d = sum((x - y) ** 2 for x, y in zip(p, q)) ** 0.5
 EPS = 1e-9  # 浮点容差，避免恰在阈值上的配色被误拒
-if not (hue_diff >= 60 - EPS or v_diff >= 0.4 - EPS):
-    print(f"CROSS\t{hue_diff:.0f}\t{v_diff:.2f}")
-
-d_main = dist(m0, m1)
-d_alt = dist(a0, a1)
-if d_main < 60 - EPS:
-    print(f"PAIR\t主\t{d_main:.0f}")
-if d_alt < 60 - EPS:
-    print(f"PAIR\t辅\t{d_alt:.0f}")
+if d < 60 - EPS:
+    print(f"{d:.0f}")
 PY
 }
 
-# 解析秀文件：第 1 行「#秀名<TAB>显示名」，其后每行「文案<TAB>主色对<TAB>辅色对」。
-# 色值不合法的景整景跳过并中文告警，绝不把残值发给设备。
+# 解析秀文件：第 1 行「#秀名<TAB>显示名」，其后每行一景，兼容两种格式：
+#   2 列「文案<TAB>色对」；3 列旧格式「文案<TAB>色对<TAB>辅色对」（第 3 列忽略，不校验不下发）。
+# 同一房间所有灯统一使用该景色对；色值不合法的景整景跳过并中文告警，绝不把残值发给设备。
 SHOW_DISPLAY_NAME=""
 SCENE_TEXTS=()
 SCENE_MAINS=()
-SCENE_ALTS=()
 SHOW_SKIPPED_TOTAL=0
 load_show() {
-  local file="$1" lineno=0 raw_scene=0 color_rejected=0 text main alt
-  local report kind field1 field2
+  local file="$1" lineno=0 raw_scene=0 color_rejected=0 text main rest
+  local report
   SHOW_DISPLAY_NAME=""
   SCENE_TEXTS=()
   SCENE_MAINS=()
-  SCENE_ALTS=()
   SHOW_SKIPPED_TOTAL=0
-  while IFS=$'\t' read -r text main alt || [[ -n "${text:-}" ]]; do
+  while IFS=$'\t' read -r text main rest || [[ -n "${text:-}" ]]; do
     lineno=$((lineno + 1))
     if (( lineno == 1 )); then
       if [[ "$text" != "#秀名" || -z "${main:-}" ]]; then
@@ -141,41 +117,31 @@ load_show() {
     fi
     [[ -n "${text:-}" ]] || continue
     raw_scene=$((raw_scene + 1))
-    if [[ -z "${main:-}" || -z "${alt:-}" ]]; then
+    if [[ -z "${main:-}" ]]; then
       say "提醒：第${raw_scene}景缺少色对，整景已跳过，未向设备下发"
       log "第${raw_scene}景缺少色对，整景跳过"
       SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
       continue
     fi
-    if ! valid_pair "$main" || ! valid_pair "$alt"; then
+    if ! valid_pair "$main"; then
       say "提醒：第${raw_scene}景色值不合法（要求 #RRGGBB,#RRGGBB），整景已跳过，未向设备下发"
       log "第${raw_scene}景色值不合法，整景跳过"
       SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
       continue
     fi
 
-    # 色距硬校验：任一不过则整景拒播
-    report="$(scene_color_report "$main" "$alt" 2>/dev/null || true)"
+    # 色距硬校验：色对内部距离不足则整景拒播
+    report="$(scene_color_report "$main" 2>/dev/null || true)"
     if [[ -n "$report" ]]; then
       color_rejected=$((color_rejected + 1))
       SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
-      while IFS=$'\t' read -r kind field1 field2; do
-        case "$kind" in
-          CROSS)
-            say "提醒：第${raw_scene}景颜色过于接近（主辅色相差仅${field1}度、明度差仅${field2}），整景拒播；请拉开色相（差60度以上）或明暗（明度差0.4以上）再试"
-            ;;
-          PAIR)
-            say "提醒：第${raw_scene}景${field1}色对内部两色过近（RGB 距离仅${field2}，需60以上），渐变会看不出来，整景拒播；请加大同一色对里两个颜色的差异"
-            ;;
-        esac
-      done <<<"$report"
+      say "提醒：第${raw_scene}景色对内部两色过近（RGB 距离仅${report}，需60以上），渐变会看不出来，整景拒播；请加大色对里两个颜色的差异"
       log "第${raw_scene}景色距校验不过，整景拒播"
       continue
     fi
 
     SCENE_TEXTS+=("$text")
     SCENE_MAINS+=("$main")
-    SCENE_ALTS+=("$alt")
   done <"$file"
 
   # 色距拒播景数达到总景数一半即终止整场
@@ -412,12 +378,15 @@ else:
 ' 2>/dev/null || printf 'unknown\n'
 }
 
-# 从 miloco-cli device catalog 输出里找第一台带 play-text 能力的音箱；
-# $1 非空时按房间过滤（互为包含即命中）
+# 音箱发现（真机实证 catalog 无动作列且漏设备，已弃用）：
+# 与灯同源读 /api/miot/home，按房间互含过滤；候选条件 category=="speaker"
+# （条目无 category 字段时回退「名称含音箱」）；再逐台 miloco-cli device spec
+# 确认含 play-text 能力，取第一台确认的。$1 非空时按房间过滤。
 discover_speaker() {
-  local want_room="${1:-}" output
+  local want_room="${1:-}" candidates did name token
   if mock_devices_ready; then
-    local did name room model on caps
+    # mock 模式：能力列含 play-text 即命中，不调 spec
+    local room model on caps
     while IFS=$'\t' read -r did name room model on caps; do
       [[ -n "$did" && "$caps" == *play-text* ]] || continue
       room_matches "$room" "$want_room" || continue
@@ -426,75 +395,63 @@ discover_speaker() {
     done <"$XINGUANG_SHOW_MOCK_DEVICES"
     return 1
   fi
-  output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device catalog 2>/dev/null || true)"
-  [[ -n "$output" ]] || return 1
-  printf '%s' "$output" | python3 -c '
+
+  token="$(read_miloco_token)" || return 1
+  candidates="$(curl -fsS --max-time 20 \
+    -H "Authorization: Bearer $token" \
+    "$MILOCO_API_URL/api/miot/home" 2>/dev/null |
+    python3 -c '
 import json
-import re
 import sys
 
 want_room = sys.argv[1] if len(sys.argv) > 1 else ""
 
-def room_ok(item):
-    if not want_room:
-        return True
-    room = str(item.get("room_name") or item.get("room") or "")
-    return bool(room) and (want_room in room or room in want_room)
+def walk(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
 
-raw = sys.stdin.read()
-
-def emit(did):
-    did = str(did).strip()
-    if did:
-        print(did)
-        raise SystemExit(0)
-
-data = None
 try:
-    data = json.loads(raw)
+    data = json.load(sys.stdin)
 except Exception:
-    data = None
+    raise SystemExit(1)
 
-if data is not None:
-    def walk(value):
-        if isinstance(value, dict):
-            yield value
-            for child in value.values():
-                yield from walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                yield from walk(child)
-    for item in walk(data):
-        if not isinstance(item, dict):
+seen = set()
+for item in walk(data):
+    if not isinstance(item, dict):
+        continue
+    did = item.get("did")
+    if not did or did in seen:
+        continue
+    if item.get("model") == "wainft.light.rgbcwy":
+        continue
+    name = str(item.get("name") or "")
+    room = str(item.get("room_name") or item.get("room") or "")
+    if want_room and not (room and (want_room in room or room in want_room)):
+        continue
+    if "category" in item:
+        if str(item.get("category")) != "speaker":
             continue
-        did = item.get("did") or item.get("device_id") or item.get("deviceId")
-        if not did:
-            continue
-        if not room_ok(item):
-            continue
-        if "play-text" in json.dumps(item, ensure_ascii=False):
-            emit(did)
-else:
-    # 文本兜底：指定房间时要求行内出现房间串，能力有限，详见告警
-    did_re = re.compile(r"did[\"\x27\s:=]+([A-Za-z0-9._\-]+)")
-    current = ""
-    for line in raw.splitlines():
-        match = did_re.search(line)
-        if match:
-            current = match.group(1)
-        if "play-text" not in line:
-            continue
-        if want_room and want_room not in line:
-            continue
-        if match:
-            emit(match.group(1))
-        fields = line.split()
-        if fields and fields[0] != "play-text" and re.fullmatch(r"[A-Za-z0-9._\-]+", fields[0]):
-            emit(fields[0])
-        if current:
-            emit(current)
-raise SystemExit(1)
-' "$want_room" 2>/dev/null
+    elif "音箱" not in name:
+        continue
+    seen.add(did)
+    print(f"{did}\t{name or did}")
+' "$want_room" 2>/dev/null)" || return 1
+  [[ -n "$candidates" ]] || return 1
+
+  while IFS=$'\t' read -r did name; do
+    [[ -n "$did" ]] || continue
+    # 逐台读设备 spec，确认真的有 play-text 播报能力再选用
+    if PATH="$HOME/.local/bin:$PATH" miloco-cli device spec "$did" 2>/dev/null | grep -q "play-text"; then
+      printf '%s\n' "$did"
+      return 0
+    fi
+  done <<<"$candidates"
+  return 1
 }
 
 apply_light_color() {
@@ -614,8 +571,8 @@ discover_for_playback() {
 # 播放主循环。dry_run=1 时只打印动作、不调设备。
 run_playback() {
   local show_name="$1" dry_run="$2" want_room="${3:-}" show_file
-  local has_speaker=0 speaker_did="" total idx text main alt wait_s
-  local lights=() names=() pair
+  local has_speaker=0 speaker_did="" total idx text main wait_s
+  local lights=() names=()
 
   if ! show_file="$(find_show_file "$show_name")"; then
     say "找不到名为「$show_name」的秀"
@@ -666,12 +623,11 @@ run_playback() {
     CURRENT_SCENE=$((idx + 1))
     text="${SCENE_TEXTS[$idx]}"
     main="${SCENE_MAINS[$idx]}"
-    alt="${SCENE_ALTS[$idx]}"
     wait_s="$(scene_wait_seconds "$text" "$has_speaker")"
     printf '%s\t%s\t%s\t%s\n' "$show_name" "$SHOW_DISPLAY_NAME" "$CURRENT_SCENE" "$total" >"$STATUS_FILE"
 
     if [[ "$dry_run" == 1 ]]; then
-      say "第 ${CURRENT_SCENE}/${total} 景｜主色对 ${main}｜辅色对 ${alt}｜估算 ${wait_s} 秒"
+      say "第 ${CURRENT_SCENE}/${total} 景｜色对 ${main}｜估算 ${wait_s} 秒"
       say "  播报：${text}"
       dry_total=$((dry_total + wait_s))
       interruptible_sleep "$DRY_RUN_STEP_SECONDS"
@@ -679,15 +635,11 @@ run_playback() {
     fi
 
     say "第 ${CURRENT_SCENE}/${total} 景开始"
-    log "第 ${CURRENT_SCENE}/${total} 景：主色对 ${main}，辅色对 ${alt}，等待 ${wait_s} 秒"
+    log "第 ${CURRENT_SCENE}/${total} 景：色对 ${main}，等待 ${wait_s} 秒"
+    # 产品方裁决：同一房间所有淡彩光必须同一色对，逐台统一下发本景色对
     local i
     for (( i = 0; i < ${#lights[@]}; i++ )); do
-      if (( i % 2 == 0 )); then
-        pair="$main"
-      else
-        pair="$alt"
-      fi
-      apply_light_color "${lights[$i]}" "$pair" || true
+      apply_light_color "${lights[$i]}" "$main" || true
     done
     if [[ "$has_speaker" == 1 ]]; then
       speak_text "$speaker_did" "$text" || true
