@@ -13,13 +13,17 @@ WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_API_URL="http://127.0.0.1:1810"
 WAINFORT_API_URL="http://127.0.0.1:1888"
 LIGHT_ONLY_SCENE_SECONDS=12
+# 自定义秀目录：位于安装目录之外，引擎/安装器更新不覆盖
+CUSTOM_SHOW_DIR="$HOME/wainfort-light/shows"
 # 演练模式默认不等待；测试进程管理分支时可设 XINGUANG_SHOW_DRY_RUN_STEP=<秒> 逐景等待。
 DRY_RUN_STEP_SECONDS="${XINGUANG_SHOW_DRY_RUN_STEP:-0}"
+# 测试/演练可注入设备清单：XINGUANG_SHOW_MOCK_DEVICES 指向 TSV 文件，
+# 每行：did<TAB>名称<TAB>房间<TAB>model<TAB>on(true/false)<TAB>能力(逗号分隔，含 play-text 即可播报)
 
 say() { printf '%s\n' "$*"; }
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG_FILE" 2>/dev/null || true; }
 
-resolve_show_dir() {
+preset_show_dir() {
   local script_dir candidate
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
   for candidate in "${XINGUANG_SHOW_DIR:-}" "$script_dir/shows" "$HOME/xinguang-ai-light/shows"; do
@@ -28,6 +32,32 @@ resolve_show_dir() {
     return 0
   done
   return 1
+}
+
+# 按秀名找文件：自定义目录优先，其次预置目录
+find_show_file() {
+  local name="$1" preset
+  if [[ -f "$CUSTOM_SHOW_DIR/$name.show" ]]; then
+    printf '%s\n' "$CUSTOM_SHOW_DIR/$name.show"
+    return 0
+  fi
+  if preset="$(preset_show_dir)" && [[ -f "$preset/$name.show" ]]; then
+    printf '%s\n' "$preset/$name.show"
+    return 0
+  fi
+  return 1
+}
+
+mock_devices_ready() {
+  [[ -n "${XINGUANG_SHOW_MOCK_DEVICES:-}" && -f "${XINGUANG_SHOW_MOCK_DEVICES:-}" ]]
+}
+
+# 房间匹配：设备房间与目标房间互为包含即命中（如「门市」匹配「门市茶区」）
+room_matches() {
+  local dev_room="$1" want_room="$2"
+  [[ -z "$want_room" ]] && return 0
+  [[ -n "$dev_room" ]] || return 1
+  [[ "$dev_room" == *"$want_room"* || "$want_room" == *"$dev_room"* ]]
 }
 
 char_count() {
@@ -43,18 +73,62 @@ valid_pair() {
   valid_color "${c0:-}" && valid_color "${c1:-}"
 }
 
+# 色距硬校验（纯本地 colorsys）：
+#   a) 主色对 color0 与辅色对 color0：HSV 色相差 >=60 度 或 明度差 >=0.4（满足其一）
+#   b) 每组色对内部 color0 与 color1：RGB 欧氏距离 >=60（0-441 尺度）
+# 输出为空表示通过；否则逐行输出 CROSS/PAIR 违规明细
+scene_color_report() {
+  python3 - "$1" "$2" <<'PY'
+import colorsys
+import sys
+
+def rgb(color):
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+def parse(pair):
+    first, second = pair.split(",")
+    return rgb(first), rgb(second)
+
+m0, m1 = parse(sys.argv[1])
+a0, a1 = parse(sys.argv[2])
+
+def dist(p, q):
+    return sum((x - y) ** 2 for x, y in zip(p, q)) ** 0.5
+
+hm, _, vm = colorsys.rgb_to_hsv(*[x / 255 for x in m0])
+ha, _, va = colorsys.rgb_to_hsv(*[x / 255 for x in a0])
+hue_diff = abs(hm - ha) * 360
+if hue_diff > 180:
+    hue_diff = 360 - hue_diff
+v_diff = abs(vm - va)
+EPS = 1e-9  # 浮点容差，避免恰在阈值上的配色被误拒
+if not (hue_diff >= 60 - EPS or v_diff >= 0.4 - EPS):
+    print(f"CROSS\t{hue_diff:.0f}\t{v_diff:.2f}")
+
+d_main = dist(m0, m1)
+d_alt = dist(a0, a1)
+if d_main < 60 - EPS:
+    print(f"PAIR\t主\t{d_main:.0f}")
+if d_alt < 60 - EPS:
+    print(f"PAIR\t辅\t{d_alt:.0f}")
+PY
+}
+
 # 解析秀文件：第 1 行「#秀名<TAB>显示名」，其后每行「文案<TAB>主色对<TAB>辅色对」。
 # 色值不合法的景整景跳过并中文告警，绝不把残值发给设备。
 SHOW_DISPLAY_NAME=""
 SCENE_TEXTS=()
 SCENE_MAINS=()
 SCENE_ALTS=()
+SHOW_SKIPPED_TOTAL=0
 load_show() {
-  local file="$1" lineno=0 raw_scene=0 text main alt
+  local file="$1" lineno=0 raw_scene=0 color_rejected=0 text main alt
+  local report kind field1 field2
   SHOW_DISPLAY_NAME=""
   SCENE_TEXTS=()
   SCENE_MAINS=()
   SCENE_ALTS=()
+  SHOW_SKIPPED_TOTAL=0
   while IFS=$'\t' read -r text main alt || [[ -n "${text:-}" ]]; do
     lineno=$((lineno + 1))
     if (( lineno == 1 )); then
@@ -70,18 +144,45 @@ load_show() {
     if [[ -z "${main:-}" || -z "${alt:-}" ]]; then
       say "提醒：第${raw_scene}景缺少色对，整景已跳过，未向设备下发"
       log "第${raw_scene}景缺少色对，整景跳过"
+      SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
       continue
     fi
     if ! valid_pair "$main" || ! valid_pair "$alt"; then
       say "提醒：第${raw_scene}景色值不合法（要求 #RRGGBB,#RRGGBB），整景已跳过，未向设备下发"
       log "第${raw_scene}景色值不合法，整景跳过"
+      SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
       continue
     fi
+
+    # 色距硬校验：任一不过则整景拒播
+    report="$(scene_color_report "$main" "$alt" 2>/dev/null || true)"
+    if [[ -n "$report" ]]; then
+      color_rejected=$((color_rejected + 1))
+      SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
+      while IFS=$'\t' read -r kind field1 field2; do
+        case "$kind" in
+          CROSS)
+            say "提醒：第${raw_scene}景颜色过于接近（主辅色相差仅${field1}度、明度差仅${field2}），整景拒播；请拉开色相（差60度以上）或明暗（明度差0.4以上）再试"
+            ;;
+          PAIR)
+            say "提醒：第${raw_scene}景${field1}色对内部两色过近（RGB 距离仅${field2}，需60以上），渐变会看不出来，整景拒播；请加大同一色对里两个颜色的差异"
+            ;;
+        esac
+      done <<<"$report"
+      log "第${raw_scene}景色距校验不过，整景拒播"
+      continue
+    fi
+
     SCENE_TEXTS+=("$text")
     SCENE_MAINS+=("$main")
     SCENE_ALTS+=("$alt")
   done <"$file"
 
+  # 色距拒播景数达到总景数一半即终止整场
+  if (( raw_scene > 0 && color_rejected * 2 >= raw_scene )); then
+    say "本场配色对比不足（${raw_scene}景中${color_rejected}景被拒播），请整体重新配色"
+    return 1
+  fi
   if (( ${#SCENE_TEXTS[@]} == 0 )); then
     say "这个秀里没有可用的景，无法播放"
     return 1
@@ -89,26 +190,59 @@ load_show() {
   return 0
 }
 
+show_display_of() {
+  local first_field display
+  IFS=$'\t' read -r first_field display _ <"$1" 2>/dev/null || true
+  [[ "$first_field" == "#秀名" && -n "${display:-}" ]] || return 1
+  printf '%s\n' "$display"
+}
+
 list_shows() {
-  local show_dir file base first_field display
-  if ! show_dir="$(resolve_show_dir)"; then
-    say "还没有找到秀目录，请先完成馨光部署"
-    return 1
+  local preset_dir file base display found=0
+  local custom_names=()
+
+  if [[ -d "$CUSTOM_SHOW_DIR" ]]; then
+    for file in "$CUSTOM_SHOW_DIR"/*.show; do
+      [[ -f "$file" ]] || continue
+      display="$(show_display_of "$file")" || continue
+      if (( found == 0 )); then
+        say "可播放的场景秀："
+        found=1
+      fi
+      if (( ${#custom_names[@]} == 0 )); then
+        say "【自定义】"
+      fi
+      base="$(basename "$file" .show)"
+      custom_names+=("$base")
+      say "  ${base}  ——  ${display}"
+    done
   fi
-  local found=0
-  for file in "$show_dir"/*.show; do
-    [[ -f "$file" ]] || continue
-    IFS=$'\t' read -r first_field display _ <"$file" || true
-    [[ "$first_field" == "#秀名" && -n "${display:-}" ]] || continue
-    if (( found == 0 )); then
-      say "可播放的场景秀："
-      found=1
-    fi
-    base="$(basename "$file" .show)"
-    say "  ${base}  ——  ${display}"
-  done
+
+  if preset_dir="$(preset_show_dir)"; then
+    local printed_header=0 name skip
+    for file in "$preset_dir"/*.show; do
+      [[ -f "$file" ]] || continue
+      display="$(show_display_of "$file")" || continue
+      base="$(basename "$file" .show)"
+      skip=0
+      for name in ${custom_names[@]+"${custom_names[@]}"}; do
+        [[ "$name" == "$base" ]] && { skip=1; break; }
+      done
+      (( skip )) && continue
+      if (( found == 0 )); then
+        say "可播放的场景秀："
+        found=1
+      fi
+      if (( printed_header == 0 )); then
+        say "【预置】"
+        printed_header=1
+      fi
+      say "  ${base}  ——  ${display}"
+    done
+  fi
+
   if (( found == 0 )); then
-    say "秀目录 $show_dir 里还没有可用的秀"
+    say "还没有可播放的秀，请先完成馨光部署或先保存一个自定义秀"
     return 1
   fi
   say "播放请执行：xinguang-show <秀名>；演练请执行：xinguang-show --dry-run <秀名>"
@@ -174,8 +308,13 @@ print(token)
 PY
 }
 
-# 输出 did<TAB>名称，仅保留 model=wainft.light.rgbcwy 且在线的设备
+# 输出 did<TAB>名称<TAB>房间，仅保留 model=wainft.light.rgbcwy 且在线的设备
+# 房间优先取 room_name，缺省回退 room 字段
 discover_lights() {
+  if mock_devices_ready; then
+    awk -F'\t' '$4 == "wainft.light.rgbcwy" { print $1 "\t" $2 "\t" $3 }' "$XINGUANG_SHOW_MOCK_DEVICES"
+    return 0
+  fi
   local token
   token="$(read_miloco_token)" || return 1
   curl -fsS --max-time 20 \
@@ -216,12 +355,17 @@ for item in walk(data):
         continue
     seen.add(did)
     name = item.get("name") or "未命名灯光"
-    print(f"{did}\t{name}")
+    room = item.get("room_name") or item.get("room") or ""
+    print(f"{did}\t{name}\t{room}")
 '
 }
 
 light_is_on() {
   local did="$1" output
+  if mock_devices_ready; then
+    awk -F'\t' -v want="$did" '$1 == want { print ($5 == "true" ? "true" : "false"); found = 1 } END { if (!found) print "unknown" }' "$XINGUANG_SHOW_MOCK_DEVICES"
+    return 0
+  fi
   output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device props "$did" prop.2.1 2>/dev/null || true)"
   [[ -n "$output" ]] || { printf 'unknown\n'; return 0; }
   printf '%s' "$output" | python3 -c '
@@ -268,15 +412,34 @@ else:
 ' 2>/dev/null || printf 'unknown\n'
 }
 
-# 从 miloco-cli device catalog 输出里找第一台带 play-text 能力的音箱
+# 从 miloco-cli device catalog 输出里找第一台带 play-text 能力的音箱；
+# $1 非空时按房间过滤（互为包含即命中）
 discover_speaker() {
-  local output
+  local want_room="${1:-}" output
+  if mock_devices_ready; then
+    local did name room model on caps
+    while IFS=$'\t' read -r did name room model on caps; do
+      [[ -n "$did" && "$caps" == *play-text* ]] || continue
+      room_matches "$room" "$want_room" || continue
+      printf '%s\n' "$did"
+      return 0
+    done <"$XINGUANG_SHOW_MOCK_DEVICES"
+    return 1
+  fi
   output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device catalog 2>/dev/null || true)"
   [[ -n "$output" ]] || return 1
   printf '%s' "$output" | python3 -c '
 import json
 import re
 import sys
+
+want_room = sys.argv[1] if len(sys.argv) > 1 else ""
+
+def room_ok(item):
+    if not want_room:
+        return True
+    room = str(item.get("room_name") or item.get("room") or "")
+    return bool(room) and (want_room in room or room in want_room)
 
 raw = sys.stdin.read()
 
@@ -307,9 +470,12 @@ if data is not None:
         did = item.get("did") or item.get("device_id") or item.get("deviceId")
         if not did:
             continue
+        if not room_ok(item):
+            continue
         if "play-text" in json.dumps(item, ensure_ascii=False):
             emit(did)
 else:
+    # 文本兜底：指定房间时要求行内出现房间串，能力有限，详见告警
     did_re = re.compile(r"did[\"\x27\s:=]+([A-Za-z0-9._\-]+)")
     current = ""
     for line in raw.splitlines():
@@ -317,6 +483,8 @@ else:
         if match:
             current = match.group(1)
         if "play-text" not in line:
+            continue
+        if want_room and want_room not in line:
             continue
         if match:
             emit(match.group(1))
@@ -326,7 +494,7 @@ else:
         if current:
             emit(current)
 raise SystemExit(1)
-' 2>/dev/null
+' "$want_room" 2>/dev/null
 }
 
 apply_light_color() {
@@ -380,18 +548,76 @@ on_stop_signal() {
   exit 0
 }
 
+# 设备发现 + 房间过滤：结果写入 LIGHTS/LIGHT_NAMES/OFF_NAMES/SPEAKER_DID/HAS_SPEAKER
+LIGHTS=()
+LIGHT_NAMES=()
+OFF_NAMES=()
+SPEAKER_DID=""
+HAS_SPEAKER=0
+discover_for_playback() {
+  local want_room="$1" discovery did name room state
+  LIGHTS=()
+  LIGHT_NAMES=()
+  OFF_NAMES=()
+  SPEAKER_DID=""
+  HAS_SPEAKER=0
+
+  if [[ -n "$want_room" ]]; then
+    say "正在查找「${want_room}」房间的馨光灯……"
+  else
+    say "正在查找门市的馨光灯……"
+  fi
+  if ! discovery="$(discover_lights)" || [[ -z "$discovery" ]]; then
+    say "没有发现在线的馨光灯，请确认灯已通电在线后再播放"
+    return 1
+  fi
+  while IFS=$'\t' read -r did name room; do
+    [[ -n "$did" ]] || continue
+    room_matches "${room:-}" "$want_room" || continue
+    state="$(light_is_on "$did")"
+    if [[ "$state" == "true" ]]; then
+      LIGHTS+=("$did")
+      LIGHT_NAMES+=("${name:-$did}")
+    else
+      OFF_NAMES+=("${name:-$did}")
+    fi
+  done <<<"$discovery"
+
+  if (( ${#OFF_NAMES[@]} > 0 )); then
+    say "以下灯当前是关闭状态，不参与本次演示：${OFF_NAMES[*]}"
+  fi
+  if (( ${#LIGHTS[@]} == 0 )); then
+    if [[ -n "$want_room" ]]; then
+      say "「${want_room}」房间没有开着的馨光灯，请先打开该房间的馨光灯再播放"
+    else
+      say "请先打开门市的馨光灯再播放"
+    fi
+    return 1
+  fi
+  say "本次演示将使用 ${#LIGHTS[@]} 盏灯：${LIGHT_NAMES[*]}"
+
+  if SPEAKER_DID="$(discover_speaker "$want_room")" && [[ -n "$SPEAKER_DID" ]]; then
+    HAS_SPEAKER=1
+    say "已找到可播报的音箱，演示将带语音讲解"
+  else
+    HAS_SPEAKER=0
+    SPEAKER_DID=""
+    if [[ -n "$want_room" ]]; then
+      say "该房间没有可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
+    else
+      say "没有找到可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
+    fi
+  fi
+  return 0
+}
+
 # 播放主循环。dry_run=1 时只打印动作、不调设备。
 run_playback() {
-  local show_name="$1" dry_run="$2" show_dir show_file
+  local show_name="$1" dry_run="$2" want_room="${3:-}" show_file
   local has_speaker=0 speaker_did="" total idx text main alt wait_s
-  local lights=() names=() off_names=() line did name state pair
+  local lights=() names=() pair
 
-  if ! show_dir="$(resolve_show_dir)"; then
-    say "还没有找到秀目录，请先完成馨光部署"
-    exit 1
-  fi
-  show_file="$show_dir/$show_name.show"
-  if [[ ! -f "$show_file" ]]; then
+  if ! show_file="$(find_show_file "$show_name")"; then
     say "找不到名为「$show_name」的秀"
     list_shows || true
     exit 1
@@ -404,8 +630,14 @@ run_playback() {
   trap cleanup_runtime_files EXIT
 
   if [[ "$dry_run" == 1 ]]; then
-    say "演练模式：只打印动作，不连接、不控制任何设备"
-    has_speaker=1
+    say "演练模式：只打印动作，不控制任何设备"
+    if [[ -n "$want_room" ]] || mock_devices_ready; then
+      # 演练下也走发现与房间过滤（真实或 mock 注入清单），但绝不下发命令
+      discover_for_playback "$want_room" || exit 1
+      has_speaker="$HAS_SPEAKER"
+    else
+      has_speaker=1
+    fi
   else
     # 灯光服务令牌（不上屏、不落日志）
     if [[ -f "$WAINFORT_ENV_FILE" ]]; then
@@ -419,40 +651,11 @@ run_playback() {
       exit 1
     fi
 
-    say "正在查找门市的馨光灯……"
-    local discovery
-    if ! discovery="$(discover_lights)" || [[ -z "$discovery" ]]; then
-      say "没有发现在线的馨光灯，请确认灯已通电在线后再播放"
-      exit 1
-    fi
-    while IFS=$'\t' read -r did name; do
-      [[ -n "$did" ]] || continue
-      state="$(light_is_on "$did")"
-      if [[ "$state" == "true" ]]; then
-        lights+=("$did")
-        names+=("${name:-$did}")
-      else
-        off_names+=("${name:-$did}")
-      fi
-    done <<<"$discovery"
-
-    if (( ${#off_names[@]} > 0 )); then
-      say "以下灯当前是关闭状态，不参与本次演示：${off_names[*]}"
-    fi
-    if (( ${#lights[@]} == 0 )); then
-      say "请先打开门市的馨光灯再播放"
-      exit 1
-    fi
-    say "本次演示将使用 ${#lights[@]} 盏灯：${names[*]}"
-
-    if speaker_did="$(discover_speaker)" && [[ -n "$speaker_did" ]]; then
-      has_speaker=1
-      say "已找到可播报的音箱，演示将带语音讲解"
-    else
-      has_speaker=0
-      speaker_did=""
-      say "没有找到可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
-    fi
+    discover_for_playback "$want_room" || exit 1
+    lights=(${LIGHTS[@]+"${LIGHTS[@]}"})
+    names=(${LIGHT_NAMES[@]+"${LIGHT_NAMES[@]}"})
+    has_speaker="$HAS_SPEAKER"
+    speaker_did="$SPEAKER_DID"
   fi
 
   say "开始播放《${SHOW_DISPLAY_NAME}》，共 ${total} 景"
@@ -511,69 +714,130 @@ guard_duplicate() {
 }
 
 cmd_play() {
-  local show_name="$1" show_dir show_file
+  local show_name="$1" want_room="${2:-}" show_file
   guard_duplicate
-  if ! show_dir="$(resolve_show_dir)"; then
-    say "还没有找到秀目录，请先完成馨光部署"
-    exit 1
-  fi
-  show_file="$show_dir/$show_name.show"
-  if [[ ! -f "$show_file" ]]; then
+  if ! show_file="$(find_show_file "$show_name")"; then
     say "找不到名为「$show_name」的秀"
     list_shows || true
     exit 1
   fi
   load_show "$show_file" || exit 1
-  nohup "${BASH_SOURCE[0]}" --player "$show_name" >>"$LOG_FILE" 2>&1 &
+  XINGUANG_SHOW_ROOM="$want_room" nohup "${BASH_SOURCE[0]}" --player "$show_name" >>"$LOG_FILE" 2>&1 &
   disown 2>/dev/null || true
   say "已开始播放《${SHOW_DISPLAY_NAME}》，共 ${#SCENE_TEXTS[@]} 景"
   say "查看进度：xinguang-show --status；停止：xinguang-show --stop"
 }
 
+# 把校验通过的 .show（含 /tmp 草稿）保存为自定义秀；任何一景不过即拒存
+cmd_save() {
+  local src="$1" new_name="$2" src_file target
+  new_name="${new_name%.show}"
+  if [[ -z "$new_name" || "$new_name" == */* || "$new_name" == *..* || "$new_name" == .* || "$new_name" == -* ]]; then
+    say "新秀名不合法：不能为空，不能包含路径分隔符，不能以点或横线开头"
+    exit 1
+  fi
+
+  if [[ -f "$src" ]]; then
+    src_file="$src"
+  elif src_file="$(find_show_file "${src%.show}")"; then
+    :
+  else
+    say "找不到要保存的秀：$src（可以给 .show 文件路径，也可以给已有秀名）"
+    exit 1
+  fi
+
+  if ! load_show "$src_file"; then
+    say "校验未通过，已拒绝保存；请按上面的提示修正后重试"
+    exit 1
+  fi
+  if (( SHOW_SKIPPED_TOTAL > 0 )); then
+    say "校验未通过：有 ${SHOW_SKIPPED_TOTAL} 景被跳过或拒播，已拒绝保存；请按上面的提示修正后重试"
+    exit 1
+  fi
+
+  mkdir -p "$CUSTOM_SHOW_DIR"
+  target="$CUSTOM_SHOW_DIR/$new_name.show"
+  cp "$src_file" "$target"
+  log "已保存自定义秀《${SHOW_DISPLAY_NAME}》为 $new_name（共 ${#SCENE_TEXTS[@]} 景）"
+  say "已保存，下次说播放《${new_name}》即可"
+}
+
 usage() {
   cat <<'EOF'
 用法：
-  xinguang-show                 列出可播放的场景秀
-  xinguang-show <秀名>          播放指定的秀（后台推进，可随时停止）
-  xinguang-show --dry-run <秀名> 演练：只打印动作，不控制设备
-  xinguang-show --status        查看是否在播、播到第几景
-  xinguang-show --stop          停止播放，灯光停在当前景
+  xinguang-show                          列出可播放的场景秀（分「预置」「自定义」两组）
+  xinguang-show <秀名>                   播放指定的秀（后台推进，可随时停止）
+  xinguang-show --room <房间名> <秀名>   只用该房间的灯和音箱播放（演练同样支持）
+  xinguang-show --dry-run <秀名>         演练：只打印动作，不控制设备
+  xinguang-show --save <路径或秀名> <新名>  校验通过后保存为自定义秀
+  xinguang-show --status                 查看是否在播、播到第几景
+  xinguang-show --stop                   停止播放，灯光停在当前景
 EOF
 }
 
 main() {
   command -v python3 >/dev/null 2>&1 || { say "缺少 python3，无法运行演示引擎，请联系工作人员处理"; exit 1; }
-  case "${1:-}" in
-    "")
-      list_shows
-      ;;
-    --status)
-      cmd_status
-      ;;
-    --stop)
-      cmd_stop
-      ;;
-    --dry-run)
-      [[ -n "${2:-}" ]] || { usage; exit 1; }
-      guard_duplicate
-      run_playback "$2" 1
-      ;;
-    --player)
-      # 内部入口：cmd_play 派生的后台播放进程
-      [[ -n "${2:-}" ]] || exit 1
-      run_playback "$2" 0
-      ;;
-    --help|-h)
-      usage
-      ;;
-    --*)
+  local dry_run=0 room="${XINGUANG_SHOW_ROOM:-}" names=()
+  while (( $# > 0 )); do
+    case "$1" in
+      --dry-run)
+        dry_run=1
+        shift
+        ;;
+      --room)
+        [[ -n "${2:-}" ]] || { say "--room 后面需要房间名"; exit 1; }
+        room="$2"
+        shift 2
+        ;;
+      --status)
+        cmd_status
+        return 0
+        ;;
+      --stop)
+        cmd_stop
+        return 0
+        ;;
+      --save)
+        [[ -n "${2:-}" && -n "${3:-}" ]] || { usage; exit 1; }
+        cmd_save "$2" "$3"
+        return 0
+        ;;
+      --player)
+        # 内部入口：cmd_play 派生的后台播放进程（房间经 XINGUANG_SHOW_ROOM 传入）
+        [[ -n "${2:-}" ]] || exit 1
+        run_playback "$2" 0 "$room"
+        return 0
+        ;;
+      --help|-h)
+        usage
+        return 0
+        ;;
+      --*)
+        usage
+        exit 1
+        ;;
+      *)
+        names+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if (( ${#names[@]} == 0 )); then
+    if (( dry_run )); then
       usage
       exit 1
-      ;;
-    *)
-      cmd_play "$1"
-      ;;
-  esac
+    fi
+    list_shows
+    return 0
+  fi
+
+  if (( dry_run )); then
+    guard_duplicate
+    run_playback "${names[0]}" 1 "$room"
+  else
+    cmd_play "${names[0]}" "$room"
+  fi
 }
 
 main "$@"
