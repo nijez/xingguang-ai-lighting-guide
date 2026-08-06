@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.0.0"
+XINGUANG_SHOW_VERSION="1.1.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
