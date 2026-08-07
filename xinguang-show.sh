@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.2.0"
+XINGUANG_SHOW_VERSION="1.3.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -73,8 +73,9 @@ valid_pair() {
   valid_color "${c0:-}" && valid_color "${c1:-}"
 }
 
-# 色距硬校验（纯本地）：色对内部 color0 与 color1 的 RGB 欧氏距离 >=60（0-441 尺度），
-# 保证渐变看得出来。输出为空表示通过；不过时输出实际距离。
+# 色距硬校验（纯本地）：色对内部 color0 与 color1 的 RGB 欧氏距离 >=110（0-441 尺度），
+# 渐变必须一眼可辨（60 档的同色系深浅在灯上近似单色，产品方裁决提标）。
+# 输出为空表示通过；不过时输出实际距离。
 scene_color_report() {
   python3 - "$1" <<'PY'
 import sys
@@ -86,7 +87,7 @@ first, second = sys.argv[1].split(",")
 p, q = rgb(first), rgb(second)
 d = sum((x - y) ** 2 for x, y in zip(p, q)) ** 0.5
 EPS = 1e-9  # 浮点容差，避免恰在阈值上的配色被误拒
-if d < 60 - EPS:
+if d < 110 - EPS:
     print(f"{d:.0f}")
 PY
 }
@@ -135,7 +136,7 @@ load_show() {
     if [[ -n "$report" ]]; then
       color_rejected=$((color_rejected + 1))
       SHOW_SKIPPED_TOTAL=$((SHOW_SKIPPED_TOTAL + 1))
-      say "提醒：第${raw_scene}景色对内部两色过近（RGB 距离仅${report}，需60以上），渐变会看不出来，整景拒播；请加大色对里两个颜色的差异"
+      say "提醒：第${raw_scene}景色对内部两色过近（RGB 距离仅${report}，需110以上），渐变会看不出来，整景拒播；请改选对撞色系（如红配石青、黄配群青）再试"
       log "第${raw_scene}景色距校验不过，整景拒播"
       continue
     fi
@@ -619,6 +620,19 @@ run_playback() {
   log "开始播放《${SHOW_DISPLAY_NAME}》（$show_name），共 ${total} 景，dry_run=$dry_run"
 
   local dry_total=0
+  # 开场白：有音箱时先播报、等 6 秒再进第一景；纯灯光模式跳过
+  local opening_text="接下来为您演示《${SHOW_DISPLAY_NAME}》，请欣赏。"
+  if [[ "$has_speaker" == 1 ]]; then
+    if [[ "$dry_run" == 1 ]]; then
+      say "开场白｜${opening_text}｜等待 6 秒"
+      dry_total=$((dry_total + 6))
+    else
+      say "开场白播报中……"
+      speak_text "$speaker_did" "$opening_text" || true
+      log "开场白播报：${opening_text}（等待 6 秒）"
+      interruptible_sleep 6
+    fi
+  fi
   for (( idx = 0; idx < total; idx++ )); do
     CURRENT_SCENE=$((idx + 1))
     text="${SCENE_TEXTS[$idx]}"
