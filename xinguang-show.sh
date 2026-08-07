@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.3.0"
+XINGUANG_SHOW_VERSION="1.3.1"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -621,7 +621,7 @@ run_playback() {
 
   local dry_total=0
   # 开场白：有音箱时先播报、等 6 秒再进第一景；纯灯光模式跳过
-  local opening_text="接下来为您演示《${SHOW_DISPLAY_NAME}》，请欣赏。"
+  local opening_text="欢迎体验馨光 AI 淡彩光。每一景，都是人工智能为您设计的淡彩光渐变灯光。接下来为您演示《${SHOW_DISPLAY_NAME}》，请欣赏。"
   if [[ "$has_speaker" == 1 ]]; then
     if [[ "$dry_run" == 1 ]]; then
       say "开场白｜${opening_text}｜等待 6 秒"
