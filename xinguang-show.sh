@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.4.0"
+XINGUANG_SHOW_VERSION="1.4.1"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -571,6 +571,9 @@ apply_light_color() {
     -H "Content-Type: application/json" \
     -d "$body" >/dev/null 2>&1; then
     log "灯 $did 换色成功（$pair）"
+    # 浓度校准（研发授权）：效果触发后灯体总亮度档会漂移，统一置 3 档保证双色点浓度
+    PATH="$HOME/.local/bin:$PATH" miloco-cli device control "$did" prop.4.106 3 >/dev/null 2>&1 \
+      && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
     return 0
   fi
   log "灯 $did 换色失败（$pair）"

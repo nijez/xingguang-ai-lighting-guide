@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务-本地部署版。触发词：淡彩光/星光/馨光（含同音 新光/心光/欣光）。凡房间氛围、场景灯光、颜色效果需求必须使用本技能；禁止绕过本技能直接控制馨光彩灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.13","date":"2026-08-07","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.14","date":"2026-08-07","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.13(本地部署版)
+# 馨光智能灯控制服务 v4.0.14(本地部署版)
 
 > 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
@@ -32,6 +32,7 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.13","date":"2026-08-07","au
 - ✅ AI生成灯光后,只能调用**wainfort-server API**
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
 - ❌ **亮度调整只允许通过 `/api/generate` 的 `brightness` 字段；严禁用 miloco-cli 写 `prop.2.2`（亮度）或 `prop.2.12`（饱和度）；这两个属性只可读（回读核验用）。**
+- ✅ **浓度校准（研发授权的唯一 prop 写例外）：每次 `/api/generate` 调用成功后，立即对该灯执行固定命令 `miloco-cli device control <did> prop.4.106 3`（灯体总亮度档置 3，保证双色点浓度不被冲淡）。此命令失败不影响换色结果，不重试不报错。除此之外，任何其他 prop 写操作（含 4.X 全部属性）仍然一律禁止。**
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
 - ✅ **API Token 现读与 Unauthorized 处置（铁律）:** 每次调用 wainfort-server API 前，必须现场执行 `set -a; . ~/wainfort-light/.env; set +a` 读取 `WAINFORT_API_TOKEN`；严禁使用对话历史中出现过的任何 Token 值（包括打码形态）。收到 `Unauthorized` 时，必须重新读取 `.env` 后仅再试一次；仍失败则停止，并只用一句中文告知用户「该操作暂时无法完成，请稍后再试」。Token 不得以任何形式展示。文中所有 API 调用示例仅说明请求结构，实际调用必须先执行上述命令并使用现场读取的环境变量；示例中的「你的APIToken」仅作占位，不得用于实际调用或展示。
 
