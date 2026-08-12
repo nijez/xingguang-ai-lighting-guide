@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.4.1"
+XINGUANG_SHOW_VERSION="1.4.2"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -611,6 +611,16 @@ CURRENT_SCENE=0
 cleanup_runtime_files() { rm -f "$PID_FILE" "$STATUS_FILE"; }
 on_stop_signal() {
   log "收到停止指令，演示在第${CURRENT_SCENE}景停止，灯光停在当前景"
+  # 结束仍在跑的后台作业（并发换色的 curl、可中断等待的 sleep），不留孤儿进程。
+  # pkill -P 是按父 PID 精确清理作业的子进程，不是按名匹配，不违反「严禁 pkill 按名」禁令。
+  local job_pids jp
+  job_pids="$(jobs -p 2>/dev/null || true)"
+  if [[ -n "$job_pids" ]]; then
+    for jp in $job_pids; do
+      pkill -P "$jp" 2>/dev/null || true
+      kill "$jp" 2>/dev/null || true
+    done
+  fi
   cleanup_runtime_files
   trap - EXIT
   exit 0
@@ -816,10 +826,17 @@ run_playback() {
 
     say "第 ${CURRENT_SCENE}/${total} 景开始"
     log "第 ${CURRENT_SCENE}/${total} 景：色对 ${main}，等待 ${wait_s} 秒"
-    # 产品方裁决：同一房间所有淡彩光必须同一色对，逐台统一下发本景色对
-    local i
+    # 产品方裁决：同一房间所有淡彩光必须同一色对，且并发下发让多灯几乎同时变化
+    # （串行逐台会造成相邻灯约 2 秒错峰）。每盏灯在各自后台作业里完成
+    # generate + 4.106=3 浓度校准；单灯失败只记该灯日志，不拖垮整景。
+    # 日志顺序允许交错，每行自带 did 可辨。
+    local i scene_jobs=()
     for (( i = 0; i < ${#lights[@]}; i++ )); do
-      apply_light_color "${lights[$i]}" "$main" || true
+      apply_light_color "${lights[$i]}" "$main" &
+      scene_jobs+=("$!")
+    done
+    for i in ${scene_jobs[@]+"${scene_jobs[@]}"}; do
+      wait "$i" 2>/dev/null || true
     done
     if [[ "$has_speaker" == 1 ]]; then
       for sdid in ${speaker_dids[@]+"${speaker_dids[@]}"}; do
