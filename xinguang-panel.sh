@@ -2,15 +2,39 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.0.1"
+XINGUANG_PANEL_VERSION="1.1.0"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
 OPENCLAW_CONFIG_FILE="$HOME/.openclaw/openclaw.json"
 SKILL_FILE="$HOME/.openclaw/skills/wainfort-ai-lighting-run/SKILL.md"
 SCRIPT_RAW_URL="https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh"
-SKILL_RAW_URL="https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/skills/wainfort-ai-lighting-run/SKILL.md"
+# 线上 SKILL.md 三源（与主安装器 download_versioned_file 同一套镜像姿势）
+SKILL_ONLINE_SOURCES=(
+  "https://nijez.github.io/xingguang-ai-lighting-guide/skills/wainfort-ai-lighting-run/SKILL.md"
+  "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/skills/wainfort-ai-lighting-run/SKILL.md"
+  "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/skills/wainfort-ai-lighting-run/SKILL.md"
+)
 ENTRY_URL="https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh"
+# 龙虾（OpenClaw）npm 双源与官方升级安装器（复用主安装器 STEP_2 姿势）
+OPENCLAW_NPM_PACKAGE="openclaw"
+OPENCLAW_NPM_REGISTRIES=(
+  "https://registry.npmjs.org"
+  "https://registry.npmmirror.com"
+)
+OPENCLAW_INSTALL_SH_URL="https://openclaw.ai/install.sh"
+OPENCLAW_REGISTRY_IN_USE=""
+# Miloco 线上版本与组件包来源（复用主安装器 STEP_3 的 GitHub releases 姿势）
+MILOCO_RELEASE_API_URL="https://api.github.com/repos/XiaoMi/xiaomi-miloco/releases/latest"
+MILOCO_RELEASE_PAGE_URLS=(
+  "https://github.com/XiaoMi/xiaomi-miloco/releases/latest"
+  "https://gh-proxy.com/https://github.com/XiaoMi/xiaomi-miloco/releases/latest"
+)
+MILOCO_INSTALLER_URLS_PANEL=(
+  "https://github.com/XiaoMi/xiaomi-miloco/releases/latest/download/install.sh"
+  "https://gh-proxy.com/https://github.com/XiaoMi/xiaomi-miloco/releases/latest/download/install.sh"
+  "https://ghproxy.net/https://github.com/XiaoMi/xiaomi-miloco/releases/latest/download/install.sh"
+)
 MILOCO_API_URL="http://127.0.0.1:1810"
 TEST_PALETTES=(
   '日落|#FF6B5A|#F7C65C'
@@ -45,6 +69,25 @@ runtime_command() {
   '
   if command -v timeout >/dev/null 2>&1; then
     timeout 20s bash -lc "$command_script" bash "$@"
+  else
+    bash -lc "$command_script" bash "$@"
+  fi
+}
+
+# 与 runtime_command 同一套 bash -lc + 显式 PATH 姿势，
+# 供组件升级类长任务使用（上限 30 分钟，避免 20 秒超时误杀升级）
+runtime_command_long() {
+  local command_script
+  command_script='
+    export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.local/share/pnpm/global/5/node_modules/.bin:$PATH"
+    for node_bin in "$HOME"/.nvm/versions/node/*/bin; do
+      [[ -d "$node_bin" ]] || continue
+      export PATH="$node_bin:$PATH"
+    done
+    "$@"
+  '
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 1800s bash -lc "$command_script" bash "$@"
   else
     bash -lc "$command_script" bash "$@"
   fi
@@ -103,13 +146,18 @@ online_script_version() {
   printf '%s\n' "$version"
 }
 
+# 三源逐个尝试取线上 SKILL.md 的 metadata 版本，任一源成功即返回
 online_skill_version() {
-  local tmp version
+  local tmp version url
   tmp="$(panel_temp_file)"
   version=""
-  if curl -fsSL --max-time 5 "$SKILL_RAW_URL" -o "$tmp" 2>/dev/null; then
-    version="$(extract_skill_version "$tmp" || true)"
-  fi
+  for url in "${SKILL_ONLINE_SOURCES[@]}"; do
+    if curl -fsSL --max-time 5 "$url" -o "$tmp" 2>/dev/null; then
+      version="$(extract_skill_version "$tmp" || true)"
+      [[ -n "$version" ]] && break
+    fi
+    version=""
+  done
   rm -f "$tmp"
   [[ -n "$version" ]] || return 1
   printf '%s\n' "$version"
@@ -737,6 +785,283 @@ update_to_latest() {
   fi
 }
 
+# ---------- 分组件单独检测升级（菜单 9 / 10 / 11） ----------
+
+# 升级动作统一确认：只有直接回车才继续，其余输入一律安全返回
+confirm_component_action() {
+  local answer
+  printf '回车继续，输入 0 返回：'
+  IFS= read -r answer || answer=0
+  [[ -z "$answer" ]]
+}
+
+# 9. 更新馨光 Skill：本机 metadata 版本对比线上三源，有新版才调独立更新器
+update_skill_component() {
+  local local_version remote_version updated_version
+  printf '\n更新馨光 Skill\n'
+  local_version=""
+  [[ -f "$SKILL_FILE" ]] && local_version="$(extract_skill_version "$SKILL_FILE" || true)"
+  if [[ -z "$local_version" ]]; then
+    printf '本机还没有安装馨光 Skill，请先执行「5. 完整更新」，或在龙虾对话里安装 Skill。\n'
+    return 0
+  fi
+  printf '本机版本：%s，正在检查线上版本。\n' "$local_version"
+  remote_version="$(online_skill_version || true)"
+  if [[ -z "$remote_version" ]]; then
+    printf '无法检查线上版本，请稍后再试。\n'
+    return 0
+  fi
+  if [[ "$local_version" == "$remote_version" ]]; then
+    printf '馨光 Skill 已是最新（%s），无需更新。\n' "$local_version"
+    return 0
+  fi
+  printf '发现新版本：本机 %s → 线上 %s\n' "$local_version" "$remote_version"
+  if ! runtime_command command -v xinguang-install-skill >/dev/null 2>&1; then
+    printf '本机未找到馨光 Skill 更新器，请先执行「5. 完整更新」补齐组件后再试。\n'
+    return 0
+  fi
+  printf '接下来将执行馨光 Skill 更新器（自带版本校验），预计 1 到 3 分钟。\n'
+  require_write_mode || return 0
+  if ! confirm_component_action; then
+    printf '已返回，本次未更新。\n'
+    return 0
+  fi
+  printf '正在更新馨光 Skill。\n'
+  if ! runtime_command_long xinguang-install-skill 2>&1 | sanitize_stream; then
+    printf '馨光 Skill 更新暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
+    return 0
+  fi
+  updated_version=""
+  [[ -f "$SKILL_FILE" ]] && updated_version="$(extract_skill_version "$SKILL_FILE" || true)"
+  if [[ "$updated_version" == "$remote_version" ]]; then
+    printf '馨光 Skill 已更新到 %s。\n' "$updated_version"
+    printf '请在龙虾对话发送 /new 使新版生效\n'
+  else
+    printf '馨光 Skill 更新暂时未确认完成（当前 %s），请稍后再试，或执行「5. 完整更新」。\n' "${updated_version:-未知}"
+  fi
+}
+
+openclaw_cli_version() {
+  runtime_command openclaw --version 2>/dev/null |
+    sed -nE 's/.*([0-9]{4}\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1
+}
+
+# npm 官方源 + npmmirror 镜像双源取 latest 标签（<registry>/<包名>/latest
+# 即 dist-tags.latest 的解析结果），每源 8 秒超时；记住可用源供升级复用
+online_openclaw_version() {
+  local registry tmp version
+  OPENCLAW_REGISTRY_IN_USE=""
+  tmp="$(panel_temp_file)"
+  version=""
+  for registry in "${OPENCLAW_NPM_REGISTRIES[@]}"; do
+    if curl -fsSL --max-time 8 "$registry/$OPENCLAW_NPM_PACKAGE/latest" -o "$tmp" 2>/dev/null; then
+      version="$(python3 -c 'import json,sys;v=json.load(open(sys.argv[1]))["version"];print(v if isinstance(v,str) else "")' "$tmp" 2>/dev/null || true)"
+      if [[ -n "$version" ]]; then
+        OPENCLAW_REGISTRY_IN_USE="$registry"
+        break
+      fi
+    fi
+    version=""
+  done
+  rm -f "$tmp"
+  [[ -n "$version" ]] || return 1
+  printf '%s\n' "$version"
+}
+
+# 复用主安装器 STEP_2 同款升级命令（官方 install.sh + npm 方式 + 免交互环境变量），
+# npm 源用刚才版本检查时验证可用的那个；官方源则不注入 npm_config_registry。
+run_openclaw_upgrade() {
+  local installer status=0
+  installer="$(panel_temp_file)"
+  if ! curl -fsSL --max-time 60 "$OPENCLAW_INSTALL_SH_URL" -o "$installer" 2>/dev/null || [[ ! -s "$installer" ]]; then
+    rm -f "$installer"
+    printf '龙虾升级安装器暂时无法下载，请稍后再试。\n'
+    return 1
+  fi
+  if [[ -n "$OPENCLAW_REGISTRY_IN_USE" && "$OPENCLAW_REGISTRY_IN_USE" != "https://registry.npmjs.org" ]]; then
+    runtime_command_long env \
+      OPENCLAW_NO_PROMPT=1 OPENCLAW_NO_ONBOARD=1 OPENCLAW_INSTALL_METHOD=npm npm_config_progress=false \
+      npm_config_registry="$OPENCLAW_REGISTRY_IN_USE" \
+      bash -s -- --no-onboard --no-prompt --install-method npm <"$installer" 2>&1 | sanitize_stream || status=1
+  else
+    runtime_command_long env \
+      OPENCLAW_NO_PROMPT=1 OPENCLAW_NO_ONBOARD=1 OPENCLAW_INSTALL_METHOD=npm npm_config_progress=false \
+      bash -s -- --no-onboard --no-prompt --install-method npm <"$installer" 2>&1 | sanitize_stream || status=1
+  fi
+  rm -f "$installer"
+  return "$status"
+}
+
+# 10. 更新龙虾（OpenClaw）：当前版本对比 npm 双源 latest，有新版才升级并重启网关
+update_openclaw_component() {
+  local current_version latest_version updated_version
+  printf '\n更新龙虾（OpenClaw）\n'
+  current_version="$(openclaw_cli_version || true)"
+  if [[ -z "$current_version" ]]; then
+    printf '本机未找到龙虾（openclaw 命令不可用），请先执行「5. 完整更新」。\n'
+    return 0
+  fi
+  printf '当前版本：%s，正在检查线上版本。\n' "$current_version"
+  latest_version="$(online_openclaw_version || true)"
+  if [[ -z "$latest_version" ]]; then
+    printf '无法检查线上版本，请稍后再试。\n'
+    return 0
+  fi
+  if [[ "$current_version" == "$latest_version" ]]; then
+    printf '龙虾已是最新（%s），无需更新。\n' "$current_version"
+    return 0
+  fi
+  printf '发现新版本：本机 %s → 线上 %s\n' "$current_version" "$latest_version"
+  printf '接下来将下载官方升级安装器完成升级，并重启龙虾网关；预计 3 到 10 分钟，期间龙虾对话会短暂中断。\n'
+  require_write_mode || return 0
+  if ! confirm_component_action; then
+    printf '已返回，本次未升级。\n'
+    return 0
+  fi
+  printf '正在升级龙虾。\n'
+  if ! run_openclaw_upgrade; then
+    printf '龙虾升级暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
+    return 0
+  fi
+  printf '正在重启龙虾网关。\n'
+  runtime_command_long openclaw gateway restart >/dev/null 2>&1 || true
+  updated_version="$(openclaw_cli_version || true)"
+  if [[ "$updated_version" == "$latest_version" ]]; then
+    printf '龙虾已更新到 %s。\n' "$updated_version"
+    printf '请在龙虾对话发送 /new 使新版生效\n'
+  else
+    printf '龙虾升级暂时未确认完成（当前 %s），请稍后再试，或执行「5. 完整更新」。\n' "${updated_version:-未知}"
+  fi
+}
+
+# 本机 Miloco 版本：优先 miloco-cli --version，回退 uv tool list（uv tools 安装形态）
+miloco_local_version() {
+  local version
+  version="$(runtime_command miloco-cli --version 2>/dev/null |
+    sed -nE 's/.*([0-9]{4}\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
+  if [[ -z "$version" ]]; then
+    version="$(runtime_command uv tool list 2>/dev/null |
+      sed -nE 's/.*miloco[^0-9]*v?([0-9]{4}\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
+  fi
+  [[ -n "$version" ]] || return 1
+  printf '%s\n' "$version"
+}
+
+# 线上 Miloco 版本：GitHub releases API 优先，失败回退 releases/latest
+# 重定向头解析（含 gh-proxy 镜像），每源 8 秒超时；两路都失败则由调用方降级
+online_miloco_version() {
+  local tmp version url
+  tmp="$(panel_temp_file)"
+  version=""
+  if curl -fsSL --max-time 8 "$MILOCO_RELEASE_API_URL" -o "$tmp" 2>/dev/null; then
+    version="$(python3 -c 'import json,sys;v=json.load(open(sys.argv[1]))["tag_name"];print(v if isinstance(v,str) else "")' "$tmp" 2>/dev/null || true)"
+  fi
+  if [[ -z "$version" ]]; then
+    for url in "${MILOCO_RELEASE_PAGE_URLS[@]}"; do
+      version="$(curl -fsSI --max-time 8 "$url" 2>/dev/null |
+        sed -nE 's|^[Ll]ocation:.*/tag/v?([0-9][^[:space:]/]*).*|\1|p' | head -n 1)"
+      [[ -n "$version" ]] && break
+    done
+  fi
+  rm -f "$tmp"
+  version="${version#v}"
+  [[ -n "$version" ]] || return 1
+  printf '%s\n' "$version"
+}
+
+# 复用主安装器 STEP_3 同款姿势：多镜像下载组件包 install.sh，
+# --agent-prepare / --agent-finish 两阶段执行（stdin 重定向跳过交互），
+# 完成后按安装器同款姿势重启灯光服务
+run_miloco_component_upgrade() {
+  local installer url phase downloaded=0
+  installer="$(panel_temp_file)"
+  for url in "${MILOCO_INSTALLER_URLS_PANEL[@]}"; do
+    if curl -fsSL --max-time 60 "$url" -o "$installer" 2>/dev/null && [[ -s "$installer" ]]; then
+      downloaded=1
+      break
+    fi
+  done
+  if (( downloaded == 0 )); then
+    rm -f "$installer"
+    printf 'Miloco 组件包暂时无法下载，请稍后再试。\n'
+    return 1
+  fi
+  chmod +x "$installer"
+  for phase in --agent-prepare --agent-finish; do
+    if ! runtime_command_long bash "$installer" "$phase" </dev/null 2>&1 | sanitize_stream; then
+      rm -f "$installer"
+      return 1
+    fi
+  done
+  rm -f "$installer"
+  printf '正在重启灯光服务。\n'
+  runtime_command_long miloco-cli service restart >/dev/null 2>&1 || true
+  return 0
+}
+
+report_miloco_upgrade_result() {
+  local expected_version="$1" updated_version
+  updated_version="$(miloco_local_version || true)"
+  if [[ -n "$expected_version" && "$updated_version" == "$expected_version" ]]; then
+    printf 'Miloco 已更新到 %s。\n' "$updated_version"
+  elif [[ -n "$updated_version" ]]; then
+    printf 'Miloco 组件已重装完成（当前版本 %s）。\n' "$updated_version"
+  else
+    printf 'Miloco 更新暂时未确认完成，请稍后再试，或执行「5. 完整更新」。\n'
+    return 0
+  fi
+  if runtime_command miloco-cli service status 2>/dev/null | grep -q '"running":[[:space:]]*true'; then
+    printf '灯光服务运行中，可正常使用。\n'
+  else
+    printf '灯光服务暂未确认运行，请稍后做一次「1. 一键体检」。\n'
+  fi
+}
+
+# 11. 更新 Miloco：检测本机形态与线上版本；线上版本不可知时降级为重装最新组件包
+update_miloco_component() {
+  local current_version latest_version
+  printf '\n更新 Miloco\n'
+  current_version="$(miloco_local_version || true)"
+  if [[ -z "$current_version" ]]; then
+    printf '本机未找到 Miloco 组件，请先执行「5. 完整更新」。\n'
+    return 0
+  fi
+  printf '当前版本：%s，正在检查线上版本。\n' "$current_version"
+  latest_version="$(online_miloco_version || true)"
+  if [[ -z "$latest_version" ]]; then
+    printf '无法检查线上版本。可以改为「重装最新组件包」：重新下载 Miloco 组件包并覆盖安装（约 3 到 10 分钟），米家绑定和已有配置保留，完成后自动重启灯光服务，期间灯光控制短暂不可用。\n'
+    require_write_mode || return 0
+    if ! confirm_component_action; then
+      printf '已返回，本次未更新。\n'
+      return 0
+    fi
+    printf '正在重装 Miloco 组件包。\n'
+    if ! run_miloco_component_upgrade; then
+      printf 'Miloco 重装暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
+      return 0
+    fi
+    report_miloco_upgrade_result ""
+    return 0
+  fi
+  if [[ "$current_version" == "$latest_version" ]]; then
+    printf 'Miloco 已是最新（%s），无需更新。\n' "$current_version"
+    return 0
+  fi
+  printf '发现新版本：本机 %s → 线上 %s\n' "$current_version" "$latest_version"
+  printf '接下来将按主安装器同款方式升级 Miloco 组件包并重启灯光服务；约 3 到 10 分钟，期间灯光控制短暂不可用，米家绑定和已有配置保留。\n'
+  require_write_mode || return 0
+  if ! confirm_component_action; then
+    printf '已返回，本次未升级。\n'
+    return 0
+  fi
+  printf '正在升级 Miloco。\n'
+  if ! run_miloco_component_upgrade; then
+    printf 'Miloco 升级暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
+    return 0
+  fi
+  report_miloco_upgrade_result "$latest_version"
+}
+
 current_chat_model() {
   [[ -r "$OPENCLAW_CONFIG_FILE" ]] || return 1
   python3 - "$OPENCLAW_CONFIG_FILE" <<'PY'
@@ -1067,12 +1392,16 @@ print_menu() {
   printf '  2. 灯光测试          （随机效果打到一盏在线灯，眼见为实）\n'
   printf '  3. 我的设备          （馨光灯清单：房间/在线/开关）\n'
   printf '  4. 切换家庭          （多家庭时更换馨光设备所在家庭）\n'
-  printf '  5. 更新到最新版      （等于重跑一键安装，全自动）\n'
+  printf '  5. 完整更新          （重跑一键部署，含所有组件）\n'
   printf '  ----------------------------------------\n'
   printf '  6. 对话模型          （查看当前模型 / 切换 DeepSeek）\n'
   printf '  7. 视觉感知开关      （开启=Miloco后台任务+需MiMo Key；关闭=省钱模式）\n'
   printf '  ----------------------------------------\n'
   printf '  8. 导出诊断包        （发给工作人员用，已自动脱敏）\n'
+  printf '  ----------------------------------------\n'
+  printf '  9. 更新馨光 Skill    （单独检测升级，完成后发 /new 生效）\n'
+  printf ' 10. 更新龙虾          （OpenClaw 单独检测升级）\n'
+  printf ' 11. 更新 Miloco       （灯光插件组件单独检测升级）\n'
   printf '  0. 退出\n'
   printf '请输入序号：'
 }
@@ -1094,11 +1423,14 @@ main() {
       6) manage_chat_model || true ;;
       7) manage_sensing || true ;;
       8) collect_diagnostic_package || true ;;
+      9) update_skill_component || true ;;
+      10) update_openclaw_component || true ;;
+      11) update_miloco_component || true ;;
       0)
         printf '已退出维护面板。\n'
         return 0
         ;;
-      *) printf '请输入 0 到 8 之间的序号。\n' ;;
+      *) printf '请输入 0 到 11 之间的序号。\n' ;;
     esac
   done
 }
