@@ -333,14 +333,14 @@ running_pid() {
 
 current_scene_no() {
   local name display idx total
-  IFS=$'\t' read -r name display idx total _ <"$STATUS_FILE" 2>/dev/null || true
+  IFS=$'\t' read -r name display idx total _ 2>/dev/null <"$STATUS_FILE" || true
   printf '%s\n' "${idx:-?}"
 }
 
 cmd_status() {
   local pid name display idx total
   if pid="$(running_pid)"; then
-    IFS=$'\t' read -r name display idx total _ <"$STATUS_FILE" 2>/dev/null || true
+    IFS=$'\t' read -r name display idx total _ 2>/dev/null <"$STATUS_FILE" || true
     if [[ -n "${display:-}" ]]; then
       say "演示正在播放：《${display}》第 ${idx:-?}/${total:-?} 景"
     else
