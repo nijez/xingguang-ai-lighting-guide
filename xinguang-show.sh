@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.3.1"
+XINGUANG_SHOW_VERSION="1.4.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -58,6 +58,113 @@ room_matches() {
   [[ -z "$want_room" ]] && return 0
   [[ -n "$dev_room" ]] || return 1
   [[ "$dev_room" == *"$want_room"* || "$want_room" == *"$dev_room"* ]]
+}
+
+# 逗号分隔多值拆分：去掉每段首尾空白并去重，逐行输出
+split_csv() {
+  local csv="$1" tok seen=""
+  local parts=()
+  IFS=',' read -r -a parts <<<"$csv"
+  for tok in ${parts[@]+"${parts[@]}"}; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"
+    tok="${tok%"${tok##*[![:space:]]}"}"
+    [[ -n "$tok" ]] || continue
+    case "$seen" in *$'\t'"$tok"$'\t'*) continue ;; esac
+    seen="${seen}"$'\t'"$tok"$'\t'
+    printf '%s\n' "$tok"
+  done
+}
+
+# 多值房间匹配：设备房间与任一目标房间互含即命中；目标为空表示不过滤
+room_matches_any() {
+  local dev_room="$1" rooms_csv="$2" r
+  [[ -z "$rooms_csv" ]] && return 0
+  while IFS= read -r r; do
+    room_matches "$dev_room" "$r" && return 0
+  done < <(split_csv "$rooms_csv")
+  return 1
+}
+
+# 把逗号分隔多值拼成「甲」「乙」样式，用于中文提示
+quote_tokens() {
+  local csv="$1" tok out=""
+  while IFS= read -r tok; do
+    out="${out}「${tok}」"
+  done < <(split_csv "$csv")
+  printf '%s\n' "$out"
+}
+
+to_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# --lamp 名称匹配：设备名与指定名互为包含（大小写无关）；did 精确另在解析处优先处理
+lamp_name_matches() {
+  local token="$1" name="$2" lt ln
+  lt="$(to_lower "$token")"
+  ln="$(to_lower "$name")"
+  [[ -n "$lt" && -n "$ln" ]] || return 1
+  [[ "$ln" == *"$lt"* || "$lt" == *"$ln"* ]]
+}
+
+# 按多值房间过滤设备清单（did<TAB>名称<TAB>房间），逐行输出命中的
+filter_lights_by_rooms() {
+  local discovery="$1" rooms_csv="$2" did name room
+  while IFS=$'\t' read -r did name room; do
+    [[ -n "$did" ]] || continue
+    room_matches_any "${room:-}" "$rooms_csv" || continue
+    printf '%s\t%s\t%s\n' "$did" "$name" "$room"
+  done <<<"$discovery"
+}
+
+# 解析 --lamp 指定：候选集为已按房间过滤的清单（did<TAB>名称<TAB>房间）。
+# 每个指定值：did 精确命中优先；否则名称互含（大小写无关）。
+# 无命中或名称多命中都失败（调用方以退出码 1 结束）；多命中时打印候选清单（名称｜房间）。
+# 成功时命中并集（按 did 去重）写入 SELECTED_LINES，一行一灯。
+SELECTED_LINES=""
+resolve_lamp_selection() {
+  local lamps_csv="$1" candidates="$2" rooms_csv="${3:-}" token did name room
+  local matched count picked_dids=$'\n'
+  SELECTED_LINES=""
+  while IFS= read -r token; do
+    matched=""
+    count=0
+    # did 精确命中优先，避免 did 再被名称互含误判为多命中
+    while IFS=$'\t' read -r did name room; do
+      [[ -n "$did" ]] || continue
+      if [[ "$token" == "$did" ]]; then
+        matched="${did}"$'\t'"${name}"$'\t'"${room}"
+        count=1
+        break
+      fi
+    done <<<"$candidates"
+    if (( count == 0 )); then
+      while IFS=$'\t' read -r did name room; do
+        [[ -n "$did" ]] || continue
+        lamp_name_matches "$token" "$name" || continue
+        matched="${matched:+$matched$'\n'}${did}"$'\t'"${name}"$'\t'"${room}"
+        count=$((count + 1))
+      done <<<"$candidates"
+    fi
+    if (( count == 0 )); then
+      if [[ -n "$rooms_csv" ]]; then
+        say "在$(quote_tokens "$rooms_csv")房间里没有找到名为「${token}」的馨光灯，请检查灯名或房间范围"
+      else
+        say "没有找到名为「${token}」的馨光灯，请检查灯名或 did"
+      fi
+      return 1
+    fi
+    if (( count > 1 )); then
+      say "「${token}」命中了多盏灯，请用更完整的名称或 did 指定："
+      while IFS=$'\t' read -r did name room; do
+        say "  ${name}｜${room:-未知房间}"
+      done <<<"$matched"
+      return 1
+    fi
+    IFS=$'\t' read -r did name room <<<"$matched"
+    case "$picked_dids" in *$'\n'"$did"$'\n'*) continue ;; esac
+    picked_dids="${picked_dids}${did}"$'\n'
+    SELECTED_LINES="${SELECTED_LINES:+$SELECTED_LINES$'\n'}${matched}"
+  done < <(split_csv "$lamps_csv")
+  return 0
 }
 
 char_count() {
@@ -506,22 +613,28 @@ on_stop_signal() {
   exit 0
 }
 
-# 设备发现 + 房间过滤：结果写入 LIGHTS/LIGHT_NAMES/OFF_NAMES/SPEAKER_DID/HAS_SPEAKER
+# 设备发现 + 范围过滤：结果写入 LIGHTS/LIGHT_NAMES/OFF_NAMES/SPEAKER_DIDS/HAS_SPEAKER
+# $1=--room 多值（逗号分隔，可空）；$2=--lamp 多值（逗号分隔，可空）；同给取交集
 LIGHTS=()
 LIGHT_NAMES=()
 OFF_NAMES=()
-SPEAKER_DID=""
+SPEAKER_DIDS=()
 HAS_SPEAKER=0
 discover_for_playback() {
-  local want_room="$1" discovery did name room state
+  local want_rooms="$1" want_lamps="${2:-}" discovery filtered did name room state
+  local participating_rooms="" speaker_rooms="" sdid s dup r
   LIGHTS=()
   LIGHT_NAMES=()
   OFF_NAMES=()
-  SPEAKER_DID=""
+  SPEAKER_DIDS=()
   HAS_SPEAKER=0
 
-  if [[ -n "$want_room" ]]; then
-    say "正在查找「${want_room}」房间的馨光灯……"
+  if [[ -n "$want_rooms" && -n "$want_lamps" ]]; then
+    say "正在查找$(quote_tokens "$want_rooms")房间里指定的馨光灯$(quote_tokens "$want_lamps")……"
+  elif [[ -n "$want_rooms" ]]; then
+    say "正在查找$(quote_tokens "$want_rooms")房间的馨光灯……"
+  elif [[ -n "$want_lamps" ]]; then
+    say "正在查找指定的馨光灯$(quote_tokens "$want_lamps")……"
   else
     say "正在查找门市的馨光灯……"
   fi
@@ -529,24 +642,36 @@ discover_for_playback() {
     say "没有发现在线的馨光灯，请确认灯已通电在线后再播放"
     return 1
   fi
+
+  # 先按房间过滤（多房间取并集），再解析 --lamp（与房间范围取交集）
+  filtered="$(filter_lights_by_rooms "$discovery" "$want_rooms")"
+  if [[ -n "$want_lamps" ]]; then
+    resolve_lamp_selection "$want_lamps" "$filtered" "$want_rooms" || return 1
+    filtered="$SELECTED_LINES"
+  fi
+
   while IFS=$'\t' read -r did name room; do
     [[ -n "$did" ]] || continue
-    room_matches "${room:-}" "$want_room" || continue
     state="$(light_is_on "$did")"
     if [[ "$state" == "true" ]]; then
       LIGHTS+=("$did")
       LIGHT_NAMES+=("${name:-$did}")
+      if [[ -n "${room:-}" ]]; then
+        participating_rooms="${participating_rooms:+$participating_rooms,}$room"
+      fi
     else
       OFF_NAMES+=("${name:-$did}")
     fi
-  done <<<"$discovery"
+  done <<<"$filtered"
 
   if (( ${#OFF_NAMES[@]} > 0 )); then
     say "以下灯当前是关闭状态，不参与本次演示：${OFF_NAMES[*]}"
   fi
   if (( ${#LIGHTS[@]} == 0 )); then
-    if [[ -n "$want_room" ]]; then
-      say "「${want_room}」房间没有开着的馨光灯，请先打开该房间的馨光灯再播放"
+    if [[ -n "$want_lamps" ]]; then
+      say "指定的馨光灯当前都没开着，请先打开再播放"
+    elif [[ -n "$want_rooms" ]]; then
+      say "$(quote_tokens "$want_rooms")房间没有开着的馨光灯，请先打开该房间的馨光灯再播放"
     else
       say "请先打开门市的馨光灯再播放"
     fi
@@ -554,15 +679,50 @@ discover_for_playback() {
   fi
   say "本次演示将使用 ${#LIGHTS[@]} 盏灯：${LIGHT_NAMES[*]}"
 
-  if SPEAKER_DID="$(discover_speaker "$want_room")" && [[ -n "$SPEAKER_DID" ]]; then
-    HAS_SPEAKER=1
-    say "已找到可播报的音箱，演示将带语音讲解"
-  else
-    HAS_SPEAKER=0
-    SPEAKER_DID=""
-    if [[ -n "$want_room" ]]; then
-      say "该房间没有可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
+  # 音箱选取：
+  #   给了 --room：每个指定房间各取一台含 play-text 的音箱（按 did 去重）；
+  #   只给 --lamp：按命中灯所在房间并集，规则同上；
+  #   都没给：沿用原有「取第一台可用音箱」逻辑，行为完全不变。
+  if [[ -n "$want_rooms" ]]; then
+    speaker_rooms="$want_rooms"
+  elif [[ -n "$want_lamps" ]]; then
+    speaker_rooms="$participating_rooms"
+  fi
+  if [[ -n "$want_rooms" || -n "$want_lamps" ]]; then
+    while IFS= read -r r; do
+      [[ -n "$r" ]] || continue
+      if sdid="$(discover_speaker "$r")" && [[ -n "$sdid" ]]; then
+        dup=0
+        for s in ${SPEAKER_DIDS[@]+"${SPEAKER_DIDS[@]}"}; do
+          [[ "$s" == "$sdid" ]] && { dup=1; break; }
+        done
+        (( dup )) || SPEAKER_DIDS+=("$sdid")
+      else
+        say "「${r}」房间没有可播报的音箱"
+      fi
+    done < <(split_csv "$speaker_rooms")
+    if (( ${#SPEAKER_DIDS[@]} > 0 )); then
+      HAS_SPEAKER=1
+      if (( ${#SPEAKER_DIDS[@]} > 1 )); then
+        say "已找到 ${#SPEAKER_DIDS[@]} 台可播报的音箱，演示将带语音讲解"
+      else
+        say "已找到可播报的音箱，演示将带语音讲解"
+      fi
     else
+      HAS_SPEAKER=0
+      if [[ -n "$want_rooms" ]]; then
+        say "该房间没有可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
+      else
+        say "没有找到可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
+      fi
+    fi
+  else
+    if sdid="$(discover_speaker "")" && [[ -n "$sdid" ]]; then
+      SPEAKER_DIDS+=("$sdid")
+      HAS_SPEAKER=1
+      say "已找到可播报的音箱，演示将带语音讲解"
+    else
+      HAS_SPEAKER=0
       say "没有找到可播报的音箱，本次为纯灯光模式（每景 ${LIGHT_ONLY_SCENE_SECONDS} 秒）"
     fi
   fi
@@ -571,9 +731,9 @@ discover_for_playback() {
 
 # 播放主循环。dry_run=1 时只打印动作、不调设备。
 run_playback() {
-  local show_name="$1" dry_run="$2" want_room="${3:-}" show_file
-  local has_speaker=0 speaker_did="" total idx text main wait_s
-  local lights=() names=()
+  local show_name="$1" dry_run="$2" want_room="${3:-}" want_lamp="${4:-}" show_file
+  local has_speaker=0 total idx text main wait_s sdid
+  local lights=() names=() speaker_dids=()
 
   if ! show_file="$(find_show_file "$show_name")"; then
     say "找不到名为「$show_name」的秀"
@@ -589,9 +749,9 @@ run_playback() {
 
   if [[ "$dry_run" == 1 ]]; then
     say "演练模式：只打印动作，不控制任何设备"
-    if [[ -n "$want_room" ]] || mock_devices_ready; then
-      # 演练下也走发现与房间过滤（真实或 mock 注入清单），但绝不下发命令
-      discover_for_playback "$want_room" || exit 1
+    if [[ -n "$want_room" || -n "$want_lamp" ]] || mock_devices_ready; then
+      # 演练下也走发现与范围过滤（真实或 mock 注入清单），但绝不下发命令
+      discover_for_playback "$want_room" "$want_lamp" || exit 1
       has_speaker="$HAS_SPEAKER"
     else
       has_speaker=1
@@ -609,11 +769,11 @@ run_playback() {
       exit 1
     fi
 
-    discover_for_playback "$want_room" || exit 1
+    discover_for_playback "$want_room" "$want_lamp" || exit 1
     lights=(${LIGHTS[@]+"${LIGHTS[@]}"})
     names=(${LIGHT_NAMES[@]+"${LIGHT_NAMES[@]}"})
     has_speaker="$HAS_SPEAKER"
-    speaker_did="$SPEAKER_DID"
+    speaker_dids=(${SPEAKER_DIDS[@]+"${SPEAKER_DIDS[@]}"})
   fi
 
   say "开始播放《${SHOW_DISPLAY_NAME}》，共 ${total} 景"
@@ -628,7 +788,10 @@ run_playback() {
       dry_total=$((dry_total + 6))
     else
       say "开场白播报中……"
-      speak_text "$speaker_did" "$opening_text" || true
+      # 多房间时对每台音箱依次下发同一文本
+      for sdid in ${speaker_dids[@]+"${speaker_dids[@]}"}; do
+        speak_text "$sdid" "$opening_text" || true
+      done
       log "开场白播报：${opening_text}（等待 6 秒）"
       interruptible_sleep 6
     fi
@@ -656,7 +819,9 @@ run_playback() {
       apply_light_color "${lights[$i]}" "$main" || true
     done
     if [[ "$has_speaker" == 1 ]]; then
-      speak_text "$speaker_did" "$text" || true
+      for sdid in ${speaker_dids[@]+"${speaker_dids[@]}"}; do
+        speak_text "$sdid" "$text" || true
+      done
     fi
     interruptible_sleep "$wait_s"
   done
@@ -680,7 +845,7 @@ guard_duplicate() {
 }
 
 cmd_play() {
-  local show_name="$1" want_room="${2:-}" show_file
+  local show_name="$1" want_room="${2:-}" want_lamp="${3:-}" show_file discovery filtered
   guard_duplicate
   if ! show_file="$(find_show_file "$show_name")"; then
     say "找不到名为「$show_name」的秀"
@@ -688,7 +853,16 @@ cmd_play() {
     exit 1
   fi
   load_show "$show_file" || exit 1
-  XINGUANG_SHOW_ROOM="$want_room" nohup "${BASH_SOURCE[0]}" --player "$show_name" >>"$LOG_FILE" 2>&1 &
+  # --lamp 前台预检：名称歧义或找不到必须当场报错（退出码 1），不能等后台进程才发现
+  if [[ -n "$want_lamp" ]]; then
+    if ! discovery="$(discover_lights)" || [[ -z "$discovery" ]]; then
+      say "没有发现在线的馨光灯，请确认灯已通电在线后再播放"
+      exit 1
+    fi
+    filtered="$(filter_lights_by_rooms "$discovery" "$want_room")"
+    resolve_lamp_selection "$want_lamp" "$filtered" "$want_room" || exit 1
+  fi
+  XINGUANG_SHOW_ROOM="$want_room" XINGUANG_SHOW_LAMP="$want_lamp" nohup "${BASH_SOURCE[0]}" --player "$show_name" >>"$LOG_FILE" 2>&1 &
   disown 2>/dev/null || true
   say "已开始播放《${SHOW_DISPLAY_NAME}》，共 ${#SCENE_TEXTS[@]} 景"
   say "查看进度：xinguang-show --status；停止：xinguang-show --stop"
@@ -733,7 +907,10 @@ usage() {
 用法：
   xinguang-show                          列出可播放的场景秀（分「预置」「自定义」两组）
   xinguang-show <秀名>                   播放指定的秀（后台推进，可随时停止）
-  xinguang-show --room <房间名> <秀名>   只用该房间的灯和音箱播放（演练同样支持）
+  xinguang-show --room <房间名> <秀名>   只用这些房间的灯和音箱播放（多房间用逗号分隔，
+                                         如 --room 门市,二楼客厅；重复传 --room 也可以）
+  xinguang-show --lamp <灯名或did> <秀名>  只用指定的灯播放（多盏用逗号分隔；名称互为包含即命中，
+                                         多命中会列候选让你补全；与 --room 同给时取交集）
   xinguang-show --dry-run <秀名>         演练：只打印动作，不控制设备
   xinguang-show --save <路径或秀名> <新名>  校验通过后保存为自定义秀
   xinguang-show --status                 查看是否在播、播到第几景
@@ -743,7 +920,7 @@ EOF
 
 main() {
   command -v python3 >/dev/null 2>&1 || { say "缺少 python3，无法运行演示引擎，请联系工作人员处理"; exit 1; }
-  local dry_run=0 room="${XINGUANG_SHOW_ROOM:-}" names=()
+  local dry_run=0 room="${XINGUANG_SHOW_ROOM:-}" lamp="${XINGUANG_SHOW_LAMP:-}" names=()
   while (( $# > 0 )); do
     case "$1" in
       --dry-run)
@@ -751,8 +928,14 @@ main() {
         shift
         ;;
       --room)
-        [[ -n "${2:-}" ]] || { say "--room 后面需要房间名"; exit 1; }
-        room="$2"
+        [[ -n "${2:-}" ]] || { say "--room 后面需要房间名（多个用逗号分隔）"; exit 1; }
+        # 多值：逗号分隔；重复传参累加
+        room="${room:+$room,}$2"
+        shift 2
+        ;;
+      --lamp)
+        [[ -n "${2:-}" ]] || { say "--lamp 后面需要灯的名称或 did（多个用逗号分隔）"; exit 1; }
+        lamp="${lamp:+$lamp,}$2"
         shift 2
         ;;
       --status)
@@ -769,9 +952,10 @@ main() {
         return 0
         ;;
       --player)
-        # 内部入口：cmd_play 派生的后台播放进程（房间经 XINGUANG_SHOW_ROOM 传入）
+        # 内部入口：cmd_play 派生的后台播放进程
+        # （房间经 XINGUANG_SHOW_ROOM、指定灯经 XINGUANG_SHOW_LAMP 传入）
         [[ -n "${2:-}" ]] || exit 1
-        run_playback "$2" 0 "$room"
+        run_playback "$2" 0 "$room" "$lamp"
         return 0
         ;;
       --help|-h)
@@ -800,9 +984,9 @@ main() {
 
   if (( dry_run )); then
     guard_duplicate
-    run_playback "${names[0]}" 1 "$room"
+    run_playback "${names[0]}" 1 "$room" "$lamp"
   else
-    cmd_play "${names[0]}" "$room"
+    cmd_play "${names[0]}" "$room" "$lamp"
   fi
 }
 
