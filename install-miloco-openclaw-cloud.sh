@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.47"
+SCRIPT_VERSION="2026-06-25.48"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -75,7 +75,28 @@ cleanup() {
     rm -rf "$UV_WRAPPER_DIR"
   fi
 }
-trap cleanup EXIT
+
+# .48 退出兜底：旧版只有 ERR trap 会写 EXITED_BUT_INCOMPLETE；
+# 信号终止（TERM/HUP/INT）与显式 exit（die）都不会触发 ERR，
+# 原 EXIT trap 只做临时目录清理，导致安装进程非正常死亡后状态文件无未完成标记。
+# 现在 EXIT trap 统一兜底：安装流程启动后（guard armed）任何非零退出，
+# 若状态无完成/错误标记则补写 EXITED_BUT_INCOMPLETE；并 trap HUP/INT/TERM
+# 转为显式 exit，确保 EXIT trap 一定执行。（SIGKILL/OOM 无法兜底，
+# 由监控端 INSTALLER_PID 死活判定覆盖。）
+INSTALLER_EXIT_GUARD_ARMED=0
+
+on_exit() {
+  local status=$?
+  if [[ "${INSTALLER_EXIT_GUARD_ARMED:-0}" == 1 ]] && (( status != 0 )) &&
+    ! install_complete_state && ! install_failed_state; then
+    state_mark EXITED_BUT_INCOMPLETE || true
+  fi
+  cleanup
+}
+trap on_exit EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 log() {
   printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2
@@ -106,6 +127,35 @@ state_mark_silent() {
   local marker="$1"
   state_init
   grep -Fxq "$marker" "$STATE_FILE" || printf '%s\n' "$marker" >>"$STATE_FILE"
+}
+
+# .48：安装主进程启动时把自身 PID 写入状态文件，供前台监控做死活判定。
+state_record_installer_pid() {
+  local state_tmp
+  state_init
+  state_tmp="$(mktemp "$(dirname "$STATE_FILE")/.xinguang-installer-pid.XXXXXX")"
+  {
+    grep -v '^INSTALLER_PID=' "$STATE_FILE" 2>/dev/null || true
+    printf 'INSTALLER_PID=%s\n' "$$"
+  } >"$state_tmp"
+  mv "$state_tmp" "$STATE_FILE"
+}
+
+installer_recorded_pid() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  local pid
+  pid="$(grep -E '^INSTALLER_PID=[0-9]+$' "$STATE_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2 || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+# 返回 0 = 状态文件记录了安装进程 PID 且该进程已不存在。
+# 旧状态文件无 INSTALLER_PID 行时返回 1（维持旧行为，不误报）。
+installer_process_gone() {
+  local pid
+  pid="$(installer_recorded_pid || true)"
+  [[ -n "$pid" ]] || return 1
+  ! kill -0 "$pid" 2>/dev/null
 }
 
 state_last_done() {
@@ -484,6 +534,38 @@ terminal_marker_fields() {
   esac
 }
 
+# .48 流水线序位：每个状态标记一个单调递增的序位，安装主步骤与网关恢复
+# 事件统一编入一条序列（GATEWAY_* 事件按实际发生位置排在 STEP_2 之后、
+# STEP_3 之前）。显示层一律取"序位最大"的标记，彻底废除"取最高百分比"
+# ——百分比只保留原映射作显示数值，不再参与选择。
+terminal_marker_order() {
+  case "$1" in
+    INSTALL_STARTED|BACKGROUND_SUPERVISOR_STARTED) printf '10\n' ;;
+    STEP_1_STARTED) printf '20\n' ;;
+    STEP_1_DONE) printf '25\n' ;;
+    STEP_2_STARTED) printf '30\n' ;;
+    STEP_2_DONE) printf '35\n' ;;
+    GATEWAY_SERVICE_REPAIR_STARTED) printf '40\n' ;;
+    GATEWAY_SERVICE_ACTIVE) printf '41\n' ;;
+    GATEWAY_RESTART_SCHEDULED) printf '42\n' ;;
+    AGENTCHAT_RECONNECT_EXPECTED) printf '43\n' ;;
+    GATEWAY_RESTART_DONE) printf '44\n' ;;
+    STEP_3_STARTED) printf '50\n' ;;
+    LIGHT_COMPONENT_DOWNLOAD_STARTED) printf '52\n' ;;
+    LIGHT_COMPONENT_DOWNLOAD_DONE|LIGHT_SERVICE_INSTALL_STARTED|MILOCO_INSTALL_STARTED) printf '54\n' ;;
+    STEP_3_DONE) printf '60\n' ;;
+    STEP_4_STARTED) printf '62\n' ;;
+    STEP_4_DONE) printf '64\n' ;;
+    STEP_5_STARTED) printf '66\n' ;;
+    XINGUANG_SKILL_INSTALLER_READY) printf '68\n' ;;
+    STEP_5_DONE) printf '70\n' ;;
+    STEP_6_STARTED) printf '80\n' ;;
+    STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT) printf '100\n' ;;
+    OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE) printf '999\n' ;;
+    *) return 1 ;;
+  esac
+}
+
 terminal_progress_message_for_marker() {
   local fields percent phase label phase_max
   fields="$(terminal_marker_fields "$1" || true)"
@@ -504,8 +586,8 @@ terminal_progress_message_for_marker() {
 }
 
 terminal_best_progress_fields() {
-  local marker fields percent phase label phase_max
-  local best_percent=-1
+  local marker order fields
+  local best_order=-1
   local best_fields=''
 
   if install_complete_state; then
@@ -523,12 +605,14 @@ terminal_best_progress_fields() {
     return
   fi
 
+  # .48：取"序位最大"的标记，而不是百分比最高的标记。
   while IFS= read -r marker; do
+    order="$(terminal_marker_order "$marker" || true)"
+    [[ "$order" =~ ^[0-9]+$ ]] || continue
     fields="$(terminal_marker_fields "$marker" || true)"
     [[ -n "$fields" ]] || continue
-    IFS='|' read -r percent phase label phase_max <<<"$fields"
-    if (( percent > best_percent )); then
-      best_percent="$percent"
+    if (( order > best_order )); then
+      best_order="$order"
       best_fields="$fields"
     fi
   done <"$STATE_FILE"
@@ -676,100 +760,85 @@ emit_progress_updates() {
   emit_mimo_key_log_updates "$seen_file"
 }
 
-terminal_emit_progress() {
-  local percent="$1"
-  local phase="$2"
-  local label="$3"
-  local phase_max="$4"
-  local elapsed="${5:-0}"
-
-  if [[ "$phase" == error ]]; then
-    if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
-      TERMINAL_CURRENT_PHASE="error"
-      printf '安装未完成，请联系工作人员处理。\n' >&3
-    fi
-    return 0
-  fi
-
-  if [[ "$phase" == complete ]]; then
-    if (( TERMINAL_MAX_PERCENT < 100 )); then
-      TERMINAL_MAX_PERCENT=100
-      TERMINAL_CURRENT_PHASE="complete"
-      TERMINAL_CURRENT_LABEL="基础环境安装完成"
-      TERMINAL_CURRENT_PHASE_MAX=100
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n' >&3
-    fi
-    return 0
-  fi
-
-  if (( percent < TERMINAL_MAX_PERCENT )); then
-    return 0
-  fi
-
-  if [[ "$phase" != "$TERMINAL_CURRENT_PHASE" ]]; then
-    TERMINAL_CURRENT_PHASE="$phase"
-    TERMINAL_CURRENT_LABEL="$label"
-    TERMINAL_CURRENT_PHASE_MAX="$phase_max"
-    TERMINAL_PHASE_STARTED_ELAPSED="$elapsed"
-  else
-    TERMINAL_CURRENT_LABEL="$label"
-    TERMINAL_CURRENT_PHASE_MAX="$phase_max"
-  fi
-
-  if (( percent > TERMINAL_MAX_PERCENT )); then
-    local display_elapsed formatted
-    display_elapsed="$elapsed"
-    (( display_elapsed < 1 )) && display_elapsed=1
-    formatted="$(format_elapsed_mmss "$display_elapsed")"
-    TERMINAL_MAX_PERCENT="$percent"
-    printf '[已用 %s] %s%% %s...\n' "$formatted" "$percent" "$label" >&3
+terminal_emit_complete() {
+  if [[ "${TERMINAL_CURRENT_PHASE:-}" != complete ]]; then
+    TERMINAL_CURRENT_PHASE="complete"
+    TERMINAL_CURRENT_LABEL="基础环境安装完成"
+    TERMINAL_CURRENT_PERCENT=100
+    TERMINAL_MAX_ORDER=1000
+    printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n' >&3
   fi
 }
 
+# .48：每轮扫描状态文件，取序位最大的标记；序位前进时输出一行新阶段。
+# 百分比只随新标记变化（沿用原映射数值），不再自动爬升。
 emit_terminal_progress_updates() {
   local seen_file="$1"
   local elapsed="${2:-0}"
   [[ -f "$STATE_FILE" ]] || return 0
 
-  local marker fields percent phase label phase_max
+  local marker order fields percent phase label phase_max
+  local best_order="${TERMINAL_MAX_ORDER:-0}"
+  local best_fields=''
   while IFS= read -r marker; do
+    order="$(terminal_marker_order "$marker" || true)"
+    [[ "$order" =~ ^[0-9]+$ ]] || continue
     fields="$(terminal_marker_fields "$marker" || true)"
     [[ -n "$fields" ]] || continue
-    IFS='|' read -r percent phase label phase_max <<<"$fields"
-    terminal_emit_progress "$percent" "$phase" "$label" "$phase_max" "$elapsed"
+    if (( order > best_order )); then
+      best_order="$order"
+      best_fields="$fields"
+    fi
   done <"$STATE_FILE"
+
+  if [[ -n "$best_fields" ]]; then
+    IFS='|' read -r percent phase label phase_max <<<"$best_fields"
+    TERMINAL_MAX_ORDER="$best_order"
+    TERMINAL_CURRENT_PERCENT="$percent"
+    TERMINAL_CURRENT_PHASE="$phase"
+    TERMINAL_CURRENT_LABEL="$label"
+    local display_elapsed="$elapsed"
+    (( display_elapsed < 1 )) && display_elapsed=1
+    printf '[已用 %s] %s%% %s...\n' "$(format_elapsed_mmss "$display_elapsed")" "$percent" "$label" >&3
+  fi
   emit_mimo_key_log_updates "$seen_file"
 }
 
+state_file_idle_seconds() {
+  local now mtime idle
+  now="$(date +%s)"
+  mtime="$(stat -c %Y "$STATE_FILE" 2>/dev/null || stat -f %m "$STATE_FILE" 2>/dev/null || printf '%s' "$now")"
+  [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$now"
+  idle=$((now - mtime))
+  (( idle < 0 )) && idle=0
+  printf '%s\n' "$idle"
+}
+
+# .48 诚实等待：心跳只报告事实——当前百分比、阶段、状态文件最近一次
+# 活动距今秒数；百分比不自动爬升。超过 120 秒无活动时追加安抚话术。
 terminal_heartbeat_message() {
   local elapsed="$1"
-  local formatted phase_elapsed percent label
+  local formatted idle suffix=''
 
-  (( TERMINAL_MAX_PERCENT > 0 && TERMINAL_MAX_PERCENT < 100 )) || return 0
+  (( ${TERMINAL_MAX_ORDER:-0} > 0 )) || return 0
+  [[ "${TERMINAL_CURRENT_PHASE:-}" == complete || "${TERMINAL_CURRENT_PHASE:-}" == error ]] && return 0
 
   formatted="$(format_elapsed_mmss "$elapsed")"
-  phase_elapsed=$((elapsed - TERMINAL_PHASE_STARTED_ELAPSED))
-  (( phase_elapsed < 0 )) && phase_elapsed=0
-  percent=$((TERMINAL_MAX_PERCENT + 1))
-  if (( percent > TERMINAL_CURRENT_PHASE_MAX )); then
-    percent="$TERMINAL_CURRENT_PHASE_MAX"
+  idle="$(state_file_idle_seconds)"
+  if (( idle > 120 )); then
+    suffix="，时间较长，请继续等待..."
   fi
-  if (( percent > TERMINAL_MAX_PERCENT )); then
-    TERMINAL_MAX_PERCENT="$percent"
-  fi
+  printf '[已用 %s] %s%% %s (最近活动:%s 秒前)%s\n' \
+    "$formatted" "${TERMINAL_CURRENT_PERCENT:-0}" "${TERMINAL_CURRENT_LABEL:-正在启动安装}" "$idle" "$suffix"
+}
 
-  label="$TERMINAL_CURRENT_LABEL"
-  if (( phase_elapsed >= 900 )); then
-    if [[ "$TERMINAL_CURRENT_PHASE" == skill ]]; then
-      printf '[已用 %s] %s%% 馨光 Skill 安装时间较长，仍在继续。请不要重复执行安装命令。\n' "$formatted" "$percent"
-    else
-      printf '[已用 %s] %s%% %s时间较长，仍在继续。请不要重复执行安装命令。\n' "$formatted" "$percent" "$label"
-    fi
-  elif (( phase_elapsed >= 300 )); then
-    printf '[已用 %s] %s%% %s，时间较长，请继续等待...\n' "$formatted" "$percent" "$label"
-  else
-    printf '[已用 %s] %s%% %s，请稍候...\n' "$formatted" "$percent" "$label"
-  fi
+# .48 主进程死活判定：状态文件记录的安装进程已死且无完成/错误标记时，
+# 立即提示用户重跑，不再伪装等待。
+terminal_report_installer_interrupted() {
+  local fields percent phase label phase_max
+  fields="$(terminal_best_progress_fields)"
+  IFS='|' read -r percent phase label phase_max <<<"$fields"
+  printf '\n安装进程已中断（最后进度：%s）。请重跑一次更新，已完成的部分会自动跳过。\n' "$label" >&3
 }
 
 state_latest_marker() {
@@ -796,24 +865,28 @@ observe_terminal_background_progress() {
   local heartbeat_elapsed=0
   local seen_file="$WORK_DIR/terminal-progress-seen.txt"
   : >"$seen_file"
-  TERMINAL_MAX_PERCENT=0
+  TERMINAL_MAX_ORDER=0
+  TERMINAL_CURRENT_PERCENT=0
   TERMINAL_CURRENT_PHASE=""
   TERMINAL_CURRENT_LABEL=""
-  TERMINAL_CURRENT_PHASE_MAX=0
-  TERMINAL_PHASE_STARTED_ELAPSED=0
 
   printf '\n开始安装，请稍候。\n\n'
 
   while (( elapsed <= max_seconds )); do
     if install_complete_state; then
-      terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
+      terminal_emit_complete
       return 0
     fi
     if install_failed_state; then
       if [[ "${TERMINAL_CURRENT_PHASE:-}" != error ]]; then
+        TERMINAL_CURRENT_PHASE="error"
         printf '安装未完成，请联系工作人员处理。\n' >&3
       fi
       return 0
+    fi
+    if installer_process_gone; then
+      terminal_report_installer_interrupted
+      exit 1
     fi
     emit_terminal_progress_updates "$seen_file" "$elapsed"
     emit_download_progress_updates
@@ -825,7 +898,7 @@ observe_terminal_background_progress() {
     heartbeat_elapsed=$((heartbeat_elapsed + interval))
     if (( heartbeat_elapsed >= heartbeat_seconds )); then
       if install_complete_state; then
-        terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
+        terminal_emit_complete
         return 0
       fi
       terminal_heartbeat_message "$elapsed" >&3
@@ -834,7 +907,7 @@ observe_terminal_background_progress() {
   done
 
   if install_complete_state; then
-    terminal_emit_progress 100 complete "安装完成" 100 "$elapsed"
+    terminal_emit_complete
     return 0
   fi
   emit_terminal_progress_updates "$seen_file" "$elapsed"
@@ -3174,6 +3247,8 @@ run_full_deploy() {
   TOTAL_STEPS=6
   state_init
   state_mark_silent INSTALL_STARTED
+  state_record_installer_pid
+  INSTALLER_EXIT_GUARD_ARMED=1
   print_mode_summary "full"
   log "Starting Xingguang AI lighting install (script $SCRIPT_VERSION)"
   log "Install started at: $(date -Is)"
@@ -3274,6 +3349,8 @@ run_openclaw_upgrade() {
   action_start="$(date +%s)"
   previous_update="$OPENCLAW_UPDATE"
   OPENCLAW_UPDATE=1
+  state_record_installer_pid
+  INSTALLER_EXIT_GUARD_ARMED=1
   print_mode_summary "openclaw"
 
   step_start="$(date +%s)"
@@ -3298,6 +3375,8 @@ run_miloco_deploy() {
   local step_start action_start previous_update
   TOTAL_STEPS=4
   action_start="$(date +%s)"
+  state_record_installer_pid
+  INSTALLER_EXIT_GUARD_ARMED=1
   print_mode_summary "灯光插件维护"
 
   step_start="$(date +%s)"
@@ -3364,13 +3443,15 @@ run_status_report() {
     return
   fi
 
+  # .48：与流水线序位保持一致——STEP_3 及之后的标记序位高于网关重启事件，
+  # 先判后期阶段，避免旧的 GATEWAY_RESTART_SCHEDULED 压过更新的主步骤标记。
   if install_complete_state; then
     status_complete_message
-  elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
-    status_restart_message
   elif state_has STEP_3_DONE || state_has STEP_4_STARTED || state_has STEP_4_DONE || state_has STEP_5_STARTED || state_has STEP_5_DONE || state_has STEP_6_STARTED || state_has GATEWAY_RESTART_DONE; then
     printf '当前进度：\n3/4 正在准备米家连接\n'
     status_running_hint
+  elif state_has GATEWAY_RESTART_SCHEDULED || state_has AGENTCHAT_RECONNECT_EXPECTED; then
+    status_restart_message
   elif state_has STEP_2_DONE || state_has STEP_3_STARTED || state_has PLUGIN_READY; then
     printf '当前进度：\n2/4 正在安装灯光插件\n'
     status_running_hint
