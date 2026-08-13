@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.51"
+SCRIPT_VERSION="2026-06-25.52"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2074,8 +2074,24 @@ miloco_base_ready() {
   have miloco-cli || return 1
   miloco-cli service start >/dev/null 2>&1 || true
 
+  # .52 抗瞬断：服务重启窗口/PATH 未就绪会让存活检查瞬时误判，
+  # 误判会触发不必要的 Miloco 重装（真机事故根因之一）。
+  # 失败后重试 3 次、间隔 3 秒，每次重试前复用 setup_runtime_paths，全部失败才判不就绪。
   if ! miloco_service_running; then
-    return 1
+    local retry_delay="${MILOCO_READY_RETRY_DELAY:-3}"
+    local retry attempt_ok=0
+    for retry in 1 2 3; do
+      log "灯光服务存活检查未通过，${retry_delay} 秒后重试（第 ${retry}/3 次）"
+      sleep "$retry_delay"
+      setup_runtime_paths
+      if miloco_service_running; then
+        attempt_ok=1
+        break
+      fi
+    done
+    if (( attempt_ok == 0 )); then
+      return 1
+    fi
   fi
 
   if miloco_plugin_present; then
@@ -2088,6 +2104,143 @@ miloco_base_ready() {
   log "灯光服务已运行，灯光插件仍在确认中"
   return 1
 }
+
+# ---- .52 米家绑定保护 ----------------------------------------------------
+# 真机事故：Miloco 组件重装（install.sh --agent-prepare/--agent-finish）会用
+# 全新空数据库替换 ~/.openclaw/miloco/miloco.db，用户米家绑定直接丢失且无备份。
+# 对策：重装前把用户数据备份到 ~/.openclaw/miloco-backup-latest/（只留最近一份，
+# 不自动删除，留作人工救援），装后自动还原并做 HTTP 健康探测；探测失败则回退
+# 全新安装文件——任何路径都不允许让安装失败。
+
+MILOCO_USER_DATA_ITEMS=(miloco.db config.json data miot_cache)
+MILOCO_BACKUP_DIR="${MILOCO_BACKUP_DIR:-$HOME/.openclaw/miloco-backup-latest}"
+MILOCO_FRESH_TMP_DIR="${MILOCO_FRESH_TMP_DIR:-$HOME/.openclaw/miloco-fresh-tmp}"
+
+backup_miloco_user_data() {
+  if [[ ! -d "$MILOCO_HOME" ]]; then
+    log "未发现既有灯光服务数据目录，跳过米家绑定备份（全新安装场景）"
+    return 0
+  fi
+
+  local item copied=0
+  rm -rf "$MILOCO_BACKUP_DIR" 2>/dev/null || true
+  mkdir -p "$MILOCO_BACKUP_DIR" 2>/dev/null || {
+    log "WARNING: 无法创建米家绑定备份目录 $MILOCO_BACKUP_DIR，跳过备份"
+    return 0
+  }
+  for item in "${MILOCO_USER_DATA_ITEMS[@]}"; do
+    if [[ -e "$MILOCO_HOME/$item" ]]; then
+      if cp -a "$MILOCO_HOME/$item" "$MILOCO_BACKUP_DIR/" 2>/dev/null; then
+        copied=1
+      else
+        log "WARNING: 备份 $item 失败，继续备份其余数据"
+      fi
+    fi
+  done
+
+  if (( copied )); then
+    log "已备份米家绑定数据到 $MILOCO_BACKUP_DIR（仅保留最近一份，重装后将自动还原）"
+  else
+    log "既有灯光服务目录内暂无可备份的米家绑定数据"
+  fi
+  return 0
+}
+
+# 复用脚本内既有的 miloco 服务重启姿势（同 restart_miloco_service，
+# 但不 die：还原/回退路径任何失败都不允许中断安装）。
+restart_miloco_service_best_effort() {
+  setup_runtime_paths
+  have miloco-cli || return 1
+  if miloco-cli service restart >/dev/null 2>&1; then
+    :
+  else
+    miloco-cli service stop >/dev/null 2>&1 || true
+    sleep 2
+    miloco-cli service start >/dev/null 2>&1 || true
+  fi
+  wait_for_miloco_service || true
+  return 0
+}
+
+# 健康探测：读 config.json 的 server.token，带 Bearer 访问本机 miot 接口。
+# HTTP 层成功即视为服务健康——不要求有设备，新绑定用户列表本来为空。
+probe_miloco_http_health() {
+  local attempts="${MILOCO_HEALTH_PROBE_ATTEMPTS:-5}"
+  local delay="${MILOCO_HEALTH_PROBE_DELAY:-3}"
+  local config="$MILOCO_HOME/config.json"
+  local token="" attempt
+
+  if [[ -f "$config" ]]; then
+    token="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); value=((data.get("server") or {}).get("token", "")); print(value, end="") if isinstance(value, str) else None' "$config" 2>/dev/null || true)"
+  fi
+
+  for attempt in $(seq 1 "$attempts"); do
+    if curl -fsS -m 10 -o /dev/null -H "Authorization: Bearer $token" \
+      "http://127.0.0.1:1810/api/miot/home" 2>/dev/null; then
+      return 0
+    fi
+    (( attempt < attempts )) && sleep "$delay"
+  done
+  return 1
+}
+
+restore_miloco_user_data() {
+  local item has_backup=0
+
+  if [[ ! -d "$MILOCO_BACKUP_DIR" ]]; then
+    log "未发现米家绑定备份，跳过还原"
+    return 0
+  fi
+  for item in "${MILOCO_USER_DATA_ITEMS[@]}"; do
+    [[ -e "$MILOCO_BACKUP_DIR/$item" ]] && has_backup=1
+  done
+  if (( has_backup == 0 )); then
+    log "米家绑定备份目录为空，跳过还原"
+    return 0
+  fi
+
+  log "正在还原米家绑定数据（来自 $MILOCO_BACKUP_DIR）"
+  mkdir -p "$MILOCO_HOME" 2>/dev/null || true
+
+  # 还原前先把全新安装的文件暂存，供还原失败时回退。
+  rm -rf "$MILOCO_FRESH_TMP_DIR" 2>/dev/null || true
+  mkdir -p "$MILOCO_FRESH_TMP_DIR" 2>/dev/null || true
+  for item in "${MILOCO_USER_DATA_ITEMS[@]}"; do
+    if [[ -e "$MILOCO_HOME/$item" ]]; then
+      cp -a "$MILOCO_HOME/$item" "$MILOCO_FRESH_TMP_DIR/" 2>/dev/null || true
+    fi
+  done
+
+  # 用备份覆盖新安装的用户数据。
+  for item in "${MILOCO_USER_DATA_ITEMS[@]}"; do
+    if [[ -e "$MILOCO_BACKUP_DIR/$item" ]]; then
+      rm -rf "${MILOCO_HOME:?}/$item" 2>/dev/null || true
+      cp -a "$MILOCO_BACKUP_DIR/$item" "$MILOCO_HOME/" 2>/dev/null || true
+    fi
+  done
+
+  restart_miloco_service_best_effort || true
+
+  if probe_miloco_http_health; then
+    log "米家绑定数据已还原，灯光服务健康检查通过"
+    rm -rf "$MILOCO_FRESH_TMP_DIR" 2>/dev/null || true
+    return 0
+  fi
+
+  # 还原后服务起不来/接口不通：回退到全新安装文件，最坏结果=保持现状+如实告知。
+  log "WARNING: 还原米家绑定后灯光服务健康检查未通过，正在回退到全新安装状态"
+  for item in "${MILOCO_USER_DATA_ITEMS[@]}"; do
+    rm -rf "${MILOCO_HOME:?}/$item" 2>/dev/null || true
+    if [[ -e "$MILOCO_FRESH_TMP_DIR/$item" ]]; then
+      cp -a "$MILOCO_FRESH_TMP_DIR/$item" "$MILOCO_HOME/" 2>/dev/null || true
+    fi
+  done
+  restart_miloco_service_best_effort || true
+  rm -rf "$MILOCO_FRESH_TMP_DIR" 2>/dev/null || true
+  log "已恢复全新安装状态，米家绑定需重新进行（备份仍保留在 $MILOCO_BACKUP_DIR，可人工救援）"
+  return 0
+}
+# ---- .52 米家绑定保护结束 ------------------------------------------------
 
 sync_mimo_key_to_miloco() {
   local source_key="$MIMO_API_KEY"
@@ -2137,6 +2290,9 @@ install_miloco() {
 
   setup_runtime_paths
 
+  # .52 重装会用全新空库替换 miloco.db，必须先备份米家绑定数据。
+  backup_miloco_user_data || true
+
   # Redirect stdin so Miloco installer skips Mi Home and model prompts.
   state_mark LIGHT_SERVICE_INSTALL_STARTED
   state_mark MILOCO_INSTALL_STARTED
@@ -2152,6 +2308,10 @@ install_miloco() {
   fi
 
   miloco-cli service start >/dev/null 2>&1 || true
+
+  # .52 收尾成功路径：还原备份的米家绑定数据（失败自动回退，绝不中断安装）。
+  restore_miloco_user_data || true
+
   state_mark MILOCO_INSTALL_DONE
   restart_openclaw_gateway_best_effort
   wait_for_miloco_service || true
