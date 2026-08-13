@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-26.20"
-INSTALLER_VERSION="2026-06-26.20"
+ENTRY_VERSION="2026-06-26.21"
+INSTALLER_VERSION="2026-06-26.21"
 TARGET="${TARGET:-/tmp/xinguang-skill-install.sh}"
 ACTION="${1:-${INSTALL_ACTION:-install}}"
 
 download_installer() {
   local tmp
   tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-skill-installer.XXXXXX")"
-  rm -f "$TARGET"
 
   local url
   for url in \
     "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh"
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh" \
+    "https://gh-proxy.com/raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
+    "https://ghproxy.net/https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh"
   do
-    if curl -fsSL "$url" -o "$tmp" &&
+    if curl -fsSL --max-time 60 --retry 2 --retry-delay 2 "$url" -o "$tmp" &&
       grep -q "XINGUANG_SKILL_INSTALLER_VERSION=\"$INSTALLER_VERSION\"" "$tmp"; then
       mv "$tmp" "$TARGET"
       chmod +x "$TARGET"
@@ -26,6 +27,12 @@ download_installer() {
   done
 
   rm -f "$tmp"
+  # 全源失败：本地已有副本（哪怕旧版）也比中断好——降级使用并明说
+  if [[ -f "$TARGET" ]]; then
+    chmod +x "$TARGET"
+    printf '下载暂不可用，已使用本地已有版本继续。\n'
+    return 0
+  fi
   return 1
 }
 

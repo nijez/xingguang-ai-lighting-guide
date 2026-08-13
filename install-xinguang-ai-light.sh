@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ENTRY_VERSION="2026-06-25.49"
-INSTALLER_VERSION="2026-06-25.49"
+ENTRY_VERSION="2026-06-25.50"
+INSTALLER_VERSION="2026-06-25.50"
 TARGET="${TARGET:-/tmp/xinguang-light-install.sh}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 LOG_FILE="${LOG_FILE:-/tmp/xinguang-light-install-current.log}"
@@ -24,9 +24,11 @@ download_installer() {
   for url in \
     "https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh"
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh" \
+    "https://gh-proxy.com/raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh" \
+    "https://ghproxy.net/https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh"
   do
-    if curl -fsSL "$url" -o "$tmp"; then
+    if curl -fsSL --max-time 60 --retry 2 --retry-delay 2 "$url" -o "$tmp"; then
       downloaded=1
       if grep -q "SCRIPT_VERSION=\"$INSTALLER_VERSION\"" "$tmp"; then
         mv "$tmp" "$TARGET"
@@ -55,6 +57,11 @@ ensure_installer() {
   if [[ "$download_status" == 2 ]] && [[ -f "$TARGET" ]]; then
     chmod +x "$TARGET"
     printf '线上版本缓存未刷新，已使用当前已安装版本\n'
+    return 0
+  fi
+  if [[ "$download_status" == 1 ]] && [[ -f "$TARGET" ]]; then
+    chmod +x "$TARGET"
+    printf '网络暂不可用，已使用本地已安装版本继续。\n'
     return 0
   fi
 
