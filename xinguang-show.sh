@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.4.3"
+XINGUANG_SHOW_VERSION="1.5.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -562,29 +562,81 @@ for item in walk(data):
   return 1
 }
 
+# 色值 #RRGGBB → uint32 RGB 十进制整数（设备属性 4.93/4.94 的取值格式）
+color_to_int() {
+  local hex="${1#\#}"
+  printf '%s\n' "$((16#$hex))"
+}
+
+# 读灯运行模式 prop.4.37（0=音乐律动,1=静态,2=动态）；读不到输出空，
+# 调用方走安全侧：不带 4.37、照常下发。
+read_led_mode() {
+  local did="$1" output
+  output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device props "$did" prop.4.37 2>/dev/null || true)"
+  [[ -n "$output" ]] || return 0
+  printf '%s' "$output" | python3 -c '
+import json
+import re
+import sys
+
+raw = sys.stdin.read()
+
+def walk(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "prop.4.37":
+                yield child
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
+
+try:
+    for value in walk(json.loads(raw)):
+        text = str(value).strip()
+        if re.fullmatch(r"\d+", text):
+            print(text)
+            raise SystemExit
+except json.JSONDecodeError:
+    pass
+
+match = re.search(r"prop\.4\.37\D{0,40}?(\d+)", raw)
+if match:
+    print(match.group(1))
+' 2>/dev/null || true
+}
+
+# 原子下发（1.5.0 根治二次跳变，King 真机双设备目视验收）：
+# 色点 prop.4.93/4.94（uint32 RGB 整数）+ 白光亮度等级 prop.4.106=3
+# 一次 set_properties 写入、一次渲染。替代旧「generate + 补写 4.106」两步——
+# generate 每次触发会把 4.106 重置回 5，补写造成每景二次渲染跳变。
+# 写入前回读 4.37 运行模式：非 2（动态）时把 4.37=2 并入同一原子批（仍是一次写入）；
+# 已是 2 则不带（避免同值写触发多余处理）；读取失败不带 4.37、照常下发（安全侧）。
+# 整灯亮度 prop.2.2 禁写铁律不变：本函数不写任何 2.x 属性。
 apply_light_color() {
-  local did="$1" pair="$2" c0 c1 body
+  local did="$1" pair="$2" c0 c1 c0_int c1_int mode props body miloco_token
   IFS=',' read -r c0 c1 <<<"$pair"
-  body="$(python3 -c 'import json, sys; print(json.dumps({"did": sys.argv[1], "color0": sys.argv[2], "color1": sys.argv[3], "brightness": 100}))' "$did" "$c0" "$c1")"
-  if curl -fsS --max-time 20 -X POST "$WAINFORT_API_URL/api/generate" \
-    -H "Authorization: Bearer ${WAINFORT_API_TOKEN:-}" \
+  c0_int="$(color_to_int "$c0")"
+  c1_int="$(color_to_int "$c1")"
+  if ! miloco_token="$(read_miloco_token)"; then
+    log "灯 $did 原子下发失败（未读到 miloco token）"
+    return 1
+  fi
+  props="[{\"iid\":\"prop.4.93\",\"value\":$c0_int},{\"iid\":\"prop.4.94\",\"value\":$c1_int},{\"iid\":\"prop.4.106\",\"value\":3}"
+  mode="$(read_led_mode "$did")"
+  if [[ -n "$mode" && "$mode" != "2" ]]; then
+    props="${props},{\"iid\":\"prop.4.37\",\"value\":2}"
+  fi
+  props="${props}]"
+  body="{\"type\":\"set_properties\",\"properties\":$props}"
+  if curl -fsS --max-time 20 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
+    -H "Authorization: Bearer $miloco_token" \
     -H "Content-Type: application/json" \
     -d "$body" >/dev/null 2>&1; then
-    log "灯 $did 换色成功（$pair）"
-    # 浓度校准（研发授权）：效果触发后灯体总亮度档会漂移，统一置 3 档保证双色点浓度。
-    # 直连 miloco 后端（miloco-cli 的本地规格校验不含 4.X 会拒发，服务端本就接受该属性）
-    local miloco_token
-    if miloco_token="$(read_miloco_token)"; then
-      curl -fsS --max-time 15 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
-        -H "Authorization: Bearer $miloco_token" -H "Content-Type: application/json" \
-        -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null 2>&1 \
-        && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
-    else
-      log "灯 $did 浓度校准跳过（未读到 miloco token）"
-    fi
+    log "灯 $did 原子下发成功（色对 $pair，档位 3）"
     return 0
   fi
-  log "灯 $did 换色失败（$pair）"
+  log "灯 $did 原子下发失败（色对 $pair）"
   return 1
 }
 
@@ -836,8 +888,8 @@ run_playback() {
     log "第 ${CURRENT_SCENE}/${total} 景：色对 ${main}，等待 ${wait_s} 秒"
     # 产品方裁决：同一房间所有淡彩光必须同一色对，且并发下发让多灯几乎同时变化
     # （串行逐台会造成相邻灯约 2 秒错峰）。每盏灯在各自后台作业里完成
-    # generate + 4.106=3 浓度校准；单灯失败只记该灯日志，不拖垮整景。
-    # 日志顺序允许交错，每行自带 did 可辨。
+    # 一次原子下发（色点 4.93/4.94 + 档位 4.106，必要时并入 4.37=2）；
+    # 单灯失败只记该灯日志，不拖垮整景。日志顺序允许交错，每行自带 did 可辨。
     local i scene_jobs=()
     for (( i = 0; i < ${#lights[@]}; i++ )); do
       apply_light_color "${lights[$i]}" "$main" &
