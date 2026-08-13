@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.48"
+SCRIPT_VERSION="2026-06-25.49"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -45,7 +45,7 @@ XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.19}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.19}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.20}"
 XINGUANG_PANEL_VERSION="1.1.0"
 XINGUANG_SHOW_VERSION="1.4.3"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
@@ -2588,10 +2588,30 @@ download_versioned_file() {
   local expected_pattern="$2"
   shift 2
   local tmp url
-  tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-download.XXXXXX")"
-  rm -f "$target"
+  local -a sources=() proxy_sources=()
 
+  # .49: 本地版本短路——目标文件已是期望版本时直接返回，不发任何网络请求。
+  if [[ -f "$target" ]] && grep -q "$expected_pattern" "$target" 2>/dev/null; then
+    log "本地已是目标版本，跳过下载：$target"
+    chmod +x "$target" 2>/dev/null || true
+    return 0
+  fi
+
+  # .49: 国内代理兜底——raw.githubusercontent.com 源自动追加代理变体到源列表末尾。
   for url in "$@"; do
+    sources+=("$url")
+    if [[ "$url" == https://raw.githubusercontent.com/* ]]; then
+      proxy_sources+=("https://gh-proxy.com/${url#https://}")
+      proxy_sources+=("https://ghproxy.net/$url")
+    fi
+  done
+  if (( ${#proxy_sources[@]} > 0 )); then
+    sources+=("${proxy_sources[@]}")
+  fi
+
+  tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-download.XXXXXX")"
+
+  for url in "${sources[@]}"; do
     log "Downloading local helper from $url"
     if curl -fsSL --retry 3 --retry-delay 2 "$url" -o "$tmp" &&
       grep -q "$expected_pattern" "$tmp"; then
@@ -2602,7 +2622,26 @@ download_versioned_file() {
   done
 
   rm -f "$tmp"
+  # .49: 全部源失败但本地已有文件（哪怕版本不匹配）——保留旧版，返回特殊码 2。
+  if [[ -f "$target" ]]; then
+    log "下载失败，保留本地既有版本：$target"
+    return 2
+  fi
   return 1
+}
+
+# .49: 调用方包装——全源失败但本地留有旧版（返回码 2）时告警继续，不中断安装；
+# 本地无文件且全源失败（返回码 1）维持原失败路径。
+download_versioned_file_or_keep() {
+  local asset_label="$1"
+  shift
+  local rc=0
+  download_versioned_file "$@" || rc=$?
+  if (( rc == 2 )); then
+    log "警告：${asset_label} 本次未更新（下载失败，沿用本地既有版本），安装继续"
+    return 0
+  fi
+  return "$rc"
 }
 
 write_xinguang_workspace_rules() {
@@ -3130,13 +3169,13 @@ prepare_xinguang_skill_installer() {
 
   mkdir -p "$install_dir" "$bin_dir"
 
-  download_versioned_file "$entry" "ENTRY_VERSION=\"$XINGUANG_SKILL_ENTRY_VERSION\"" \
+  download_versioned_file_or_keep "馨光 Skill 安装入口脚本" "$entry" "ENTRY_VERSION=\"$XINGUANG_SKILL_ENTRY_VERSION\"" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-ai-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-ai-skill.sh" ||
     die
 
-  download_versioned_file "$main" "XINGUANG_SKILL_INSTALLER_VERSION=\"$XINGUANG_SKILL_INSTALLER_VERSION\"" \
+  download_versioned_file_or_keep "馨光 Skill 安装主脚本" "$main" "XINGUANG_SKILL_INSTALLER_VERSION=\"$XINGUANG_SKILL_INSTALLER_VERSION\"" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-skill.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-xinguang-skill.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-xinguang-skill.sh" ||
@@ -3204,7 +3243,7 @@ prepare_xinguang_panel() {
 
   mkdir -p "$install_dir" "$bin_dir"
 
-  download_versioned_file "$panel" "XINGUANG_PANEL_VERSION=\"$XINGUANG_PANEL_VERSION\"" \
+  download_versioned_file_or_keep "馨光面板" "$panel" "XINGUANG_PANEL_VERSION=\"$XINGUANG_PANEL_VERSION\"" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-panel.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-panel.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-panel.sh" ||
@@ -3225,7 +3264,7 @@ prepare_xinguang_show() {
 
   mkdir -p "$install_dir" "$bin_dir" "$show_dir"
 
-  download_versioned_file "$show" "XINGUANG_SHOW_VERSION=\"$XINGUANG_SHOW_VERSION\"" \
+  download_versioned_file_or_keep "馨光灯光秀引擎" "$show" "XINGUANG_SHOW_VERSION=\"$XINGUANG_SHOW_VERSION\"" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-show.sh" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-show.sh" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-show.sh" ||
@@ -3235,7 +3274,7 @@ prepare_xinguang_show() {
   chmod +x "$show" "$path_show"
 
   show_header="$(printf '#秀名\t中国传统色十景')"
-  download_versioned_file "$show_data" "$show_header" \
+  download_versioned_file_or_keep "灯光秀数据（中国传统色十景）" "$show_data" "$show_header" \
     "https://nijez.github.io/xingguang-ai-lighting-guide/shows/chuantongse.show" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/chuantongse.show" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/chuantongse.show" ||

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.19"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.20"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -293,24 +293,26 @@ download_file_with_progress() {
   local target="$1" label="$2" expected_bytes="${3:-0}" url="$4"
   local progress_file curl_pid start_epoch now elapsed last_report
   local total_bytes downloaded_bytes percent curl_percent remaining_minutes
+  local download_tmp
 
   [[ "$expected_bytes" =~ ^[0-9]+$ ]] || expected_bytes=0
   total_bytes="$expected_bytes"
 
   progress_file="$(mktemp "${TMPDIR:-/tmp}/xinguang-download-progress.XXXXXX")"
-  rm -f "$target"
+  # .20: 先下载到同目录临时文件，成功才覆盖目标文件，不再预删本地既有文件。
+  download_tmp="$(mktemp "${target}.download.XXXXXX")"
   start_epoch="$(date +%s)"
   last_report=-12
 
   curl -fL --progress-bar --retry 2 --connect-timeout 15 --max-time 900 \
-    "$url" -o "$target" 2>"$progress_file" &
+    "$url" -o "$download_tmp" 2>"$progress_file" &
   curl_pid=$!
 
   while kill -0 "$curl_pid" 2>/dev/null; do
     now="$(date +%s)"
     elapsed=$((now - start_epoch))
     if (( elapsed - last_report >= 12 )); then
-      downloaded_bytes="$(downloaded_file_size "$target")"
+      downloaded_bytes="$(downloaded_file_size "$download_tmp")"
       [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
       if (( total_bytes > 0 )); then
         percent=$((downloaded_bytes * 100 / total_bytes))
@@ -332,7 +334,7 @@ download_file_with_progress() {
   if wait "$curl_pid"; then
     now="$(date +%s)"
     elapsed=$((now - start_epoch))
-    downloaded_bytes="$(downloaded_file_size "$target")"
+    downloaded_bytes="$(downloaded_file_size "$download_tmp")"
     [[ "$downloaded_bytes" =~ ^[0-9]+$ ]] || downloaded_bytes=0
     if (( total_bytes > 0 )); then
       (( total_bytes < downloaded_bytes )) && total_bytes="$downloaded_bytes"
@@ -340,26 +342,56 @@ download_file_with_progress() {
     else
       emit_download_progress_without_total "$elapsed" "$label" "$downloaded_bytes"
     fi
+    mv "$download_tmp" "$target"
     rm -f "$progress_file"
     return 0
   fi
 
-  rm -f "$progress_file"
+  rm -f "$progress_file" "$download_tmp"
+  # .20: 下载失败但本地已有文件——保留旧版，返回特殊码 2。
+  if [[ -s "$target" ]]; then
+    log "下载失败，保留本地既有版本：$target"
+    return 2
+  fi
   return 1
 }
 
 download_file() {
   local target="$1"
   shift
-  local url
-  rm -f "$target"
+  local tmp url
+  local -a sources=() proxy_sources=()
+
+  # .20: 国内代理兜底——raw.githubusercontent.com 源自动追加代理变体到源列表末尾。
   for url in "$@"; do
+    sources+=("$url")
+    if [[ "$url" == https://raw.githubusercontent.com/* ]]; then
+      proxy_sources+=("https://gh-proxy.com/${url#https://}")
+      proxy_sources+=("https://ghproxy.net/$url")
+    fi
+  done
+  if (( ${#proxy_sources[@]} > 0 )); then
+    sources+=("${proxy_sources[@]}")
+  fi
+
+  # .20: 先下载到临时文件，校验通过才覆盖目标文件，不再预删本地既有文件。
+  tmp="$(mktemp "${TMPDIR:-/tmp}/xinguang-download.XXXXXX")"
+
+  for url in "${sources[@]}"; do
     log "尝试下载：$url"
-    if curl -fL --retry 2 --connect-timeout 15 --max-time 900 "$url" -o "$target"; then
-      [[ -s "$target" ]] && return 0
+    if curl -fL --retry 2 --connect-timeout 15 --max-time 900 "$url" -o "$tmp" && [[ -s "$tmp" ]]; then
+      mv "$tmp" "$target"
+      return 0
     fi
     log "当前下载源不可用，继续尝试下一个源"
   done
+
+  rm -f "$tmp"
+  # .20: 全部源失败但本地已有文件——保留旧版，返回特殊码 2。
+  if [[ -s "$target" ]]; then
+    log "下载失败，保留本地既有版本：$target"
+    return 2
+  fi
   return 1
 }
 
@@ -367,7 +399,15 @@ download_skill() {
   mkdir -p "$PUBLIC_SKILL_DIR"
   # shellcheck disable=SC2206
   local urls=($SKILL_URLS)
-  download_file "$PUBLIC_SKILL_DIR/SKILL.md" "${urls[@]}" || die "馨光 Skill 文件下载失败"
+  local download_rc=0
+  download_file "$PUBLIC_SKILL_DIR/SKILL.md" "${urls[@]}" || download_rc=$?
+  # .20: 全源失败但本地留有旧版（返回码 2）→ 告警继续，用本地既有版本走后续校验；
+  # 本地无文件且全源失败（返回码 1）维持原失败路径。
+  if (( download_rc == 2 )); then
+    log "警告：馨光 Skill 文件本次未更新（下载失败，沿用本地既有版本），安装继续"
+  elif (( download_rc != 0 )); then
+    die "馨光 Skill 文件下载失败"
+  fi
 
   grep -q "^name: $SKILL_NAME$" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 名称校验失败"
   XINGUANG_SKILL_VERSION="$(skill_metadata_version "$PUBLIC_SKILL_DIR/SKILL.md" 2>/dev/null || true)"
@@ -555,8 +595,37 @@ verify_server_checksum() {
   die "无法校验 wainfort-server 文件，请联系工作人员处理。"
 }
 
+# .20: 本地版本短路辅助——本地 wainfort-server 与期望 SHA256 一致即视为目标版本。
+server_bin_matches_expected_sha() {
+  [[ -n "$WAINFORT_SERVER_SHA256" && -f "$SERVER_BIN" ]] || return 1
+  if have sha256sum; then
+    printf '%s  %s\n' "$WAINFORT_SERVER_SHA256" "$SERVER_BIN" | sha256sum -c - >/dev/null 2>&1
+  elif have shasum; then
+    printf '%s  %s\n' "$WAINFORT_SERVER_SHA256" "$SERVER_BIN" | shasum -a 256 -c - >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
 download_server() {
-  download_file_with_progress "$SERVER_BIN" "wainfort-server" "$WAINFORT_SERVER_EXPECTED_BYTES" "$SERVER_URL" || die "wainfort-server 下载失败"
+  # .20: 本地版本短路——本地文件已是目标版本时不发任何网络请求。
+  if server_bin_matches_expected_sha; then
+    log "本地已是目标版本，跳过下载：$SERVER_BIN"
+    state_mark SERVER_SHA256_OK
+    chmod +x "$SERVER_BIN"
+    state_mark SERVER_DOWNLOAD_DONE
+    return 0
+  fi
+
+  local download_rc=0
+  download_file_with_progress "$SERVER_BIN" "wainfort-server" "$WAINFORT_SERVER_EXPECTED_BYTES" "$SERVER_URL" || download_rc=$?
+  # .20: 下载失败但本地留有旧版（返回码 2）→ 告警继续，交由 SHA256 校验把关；
+  # 本地无文件且下载失败（返回码 1）维持原失败路径。
+  if (( download_rc == 2 )); then
+    log "警告：wainfort-server 本次未更新（下载失败，沿用本地既有版本），继续校验"
+  elif (( download_rc != 0 )); then
+    die "wainfort-server 下载失败"
+  fi
   verify_server_checksum
   chmod +x "$SERVER_BIN"
   state_mark SERVER_DOWNLOAD_DONE
