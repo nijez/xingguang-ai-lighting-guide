@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.5.0"
+XINGUANG_SHOW_VERSION="1.5.1"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -627,7 +627,9 @@ apply_light_color() {
   if [[ -n "$mode" && "$mode" != "2" ]]; then
     props="${props},{\"iid\":\"prop.4.37\",\"value\":2}"
   fi
-  props="${props}]"
+  # 批尾追加参数提交信号 4.108（modeparasetend）：真机 A/B 实证可把灯膜换景时的
+  # 纯色中间帧从"明显"降到"轻微"（设备端渲染行为，彻底平滑需固件支持，已转研发）
+  props="${props},{\"iid\":\"prop.4.108\",\"value\":true}]"
   body="{\"type\":\"set_properties\",\"properties\":$props}"
   if curl -fsS --max-time 20 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
     -H "Authorization: Bearer $miloco_token" \
