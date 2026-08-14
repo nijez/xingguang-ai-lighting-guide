@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务-本地部署版。触发词：淡彩光/星光/馨光（含同音 新光/心光/欣光）。凡房间氛围、场景灯光、颜色效果需求必须使用本技能；禁止绕过本技能直接控制馨光彩灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.21","date":"2026-08-14","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.22","date":"2026-08-14","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.21(本地部署版)
+# 馨光智能灯控制服务 v4.0.22(本地部署版)
 
 > 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
@@ -224,7 +224,7 @@ for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did
 MTOK=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.openclaw/miloco/config.json")))["server"]["token"])')
 C0INT=$(python3 -c 'print(int("<C0>".lstrip("#"),16))')
 C1INT=$(python3 -c 'print(int("<C1>".lstrip("#"),16))')
-for did in <did1> <did2> ...; do curl -sS --max-time 20 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d "{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$C0INT},{\"iid\":\"prop.4.94\",\"value\":$C1INT},{\"iid\":\"prop.4.106\",\"value\":3},{\"iid\":\"prop.4.108\",\"value\":true}]}" >/dev/null & done; wait; sleep 2
+for did in <did1> <did2> ...; do curl -sS --max-time 20 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d "{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$C0INT},{\"iid\":\"prop.4.94\",\"value\":$C1INT},{\"iid\":\"prop.4.106\",\"value\":3}]}" >/dev/null & done; wait; sleep 2
 export PATH="$HOME/.local/bin:$PATH"
 for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did prop.2.1 prop.2.4 2>/dev/null | grep -oE '"value": [a-z0-9]+'; done
 ```
@@ -232,7 +232,7 @@ for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did
 - `<C0>`/`<C1>` 替换为本次两个色点（#RRGGBB 格式）；`C0INT`/`C1INT` 两行是**色值转十进制整数的固定写法**，逐字照抄、只改色值。
 - `"value":3` 是白光亮度等级默认档；用户明确指定等级时替换为用户值（1-10）。
 - 若前置回读发现某灯 `prop.4.37`（运行模式）不为 2，把 `{"iid":"prop.4.37","value":2}` 追加进该灯这条命令的 `properties` 数组（仍是同一次写入）；回读失败或已为 2 则不追加。
-- 批尾的 `prop.4.108`（参数提交信号）可减轻灯膜类设备换景时的纯色中间帧（真机 A/B 实证：明显→轻微；彻底平滑待固件）。一次写入一次渲染：色点（4.93/4.94）与档位（4.106）同批生效，无 generate 触发、无档位重置、无二次跳变。并发下发保证多灯几乎同时变化；命令尾部已含全部灯的批量回读（开关+颜色属性），以此作为确认依据，不再单独执行回读轮次。
+- 一次写入一次渲染：色点（4.93/4.94）与档位（4.106）同批生效，无 generate 触发、无档位重置、无二次跳变。并发下发保证多灯几乎同时变化；命令尾部已含全部灯的批量回读（开关+颜色属性），以此作为确认依据，不再单独执行回读轮次。
 
 #### 备用路径：/api/generate（兼容旧环境）
 
