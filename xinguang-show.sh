@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.5.2"
+XINGUANG_SHOW_VERSION="1.6.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -606,37 +606,36 @@ if match:
 ' 2>/dev/null || true
 }
 
-# 原子下发（1.5.0 根治二次跳变，King 真机双设备目视验收）：
-# 色点 prop.4.93/4.94（uint32 RGB 整数）+ 白光亮度等级 prop.4.106=3
-# 一次 set_properties 写入、一次渲染。替代旧「generate + 补写 4.106」两步——
-# generate 每次触发会把 4.106 重置回 5，补写造成每景二次渲染跳变。
-# 写入前回读 4.37 运行模式：非 2（动态）时把 4.37=2 并入同一原子批（仍是一次写入）；
-# 已是 2 则不带（避免同值写触发多余处理）；读取失败不带 4.37、照常下发（安全侧）。
+# 场景下发（1.6.0 架构回正，King 裁决）：wainfort-server /api/generate 是唯一场景通道——
+# 其渐变算法负责分段布点/方向/长度适配，直写效果通道在全新设备上不出效果（真机实证），
+# 且绕过馨光自有服务在产品上不成立。generate 成功后直连 miloco 后端补写 4.106=3
+# （研发授权的档位校准，非场景旁路）。已知妥协：generate 触发会把档位重置回 5，
+# 补写造成每景两次渲染——待研发让 generate 自带档位/默认 3 后此补写退役。
 # 整灯亮度 prop.2.2 禁写铁律不变：本函数不写任何 2.x 属性。
 apply_light_color() {
-  local did="$1" pair="$2" c0 c1 c0_int c1_int mode props body miloco_token
+  local did="$1" pair="$2" c0 c1 body miloco_token
   IFS=',' read -r c0 c1 <<<"$pair"
-  c0_int="$(color_to_int "$c0")"
-  c1_int="$(color_to_int "$c1")"
-  if ! miloco_token="$(read_miloco_token)"; then
-    log "灯 $did 原子下发失败（未读到 miloco token）"
+  if [[ ! -f "$WAINFORT_ENV_FILE" ]]; then
+    log "灯 $did 下发失败（缺少 wainfort 环境文件）"
     return 1
   fi
-  props="[{\"iid\":\"prop.4.93\",\"value\":$c0_int},{\"iid\":\"prop.4.94\",\"value\":$c1_int},{\"iid\":\"prop.4.106\",\"value\":3}"
-  mode="$(read_led_mode "$did")"
-  if [[ -n "$mode" && "$mode" != "2" ]]; then
-    props="${props},{\"iid\":\"prop.4.37\",\"value\":2}"
-  fi
-  props="${props}]"
-  body="{\"type\":\"set_properties\",\"properties\":$props}"
-  if curl -fsS --max-time 20 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
-    -H "Authorization: Bearer $miloco_token" \
+  set -a; . "$WAINFORT_ENV_FILE" >/dev/null 2>&1; set +a
+  body="$(python3 -c 'import json, sys; print(json.dumps({"did": sys.argv[1], "color0": sys.argv[2], "color1": sys.argv[3], "brightness": 100}))' "$did" "$c0" "$c1")"
+  if curl -fsS --max-time 20 -X POST "$WAINFORT_API_URL/api/generate" \
+    -H "Authorization: Bearer ${WAINFORT_API_TOKEN:-}" \
     -H "Content-Type: application/json" \
     -d "$body" >/dev/null 2>&1; then
-    log "灯 $did 原子下发成功（色对 $pair，档位 3）"
+    log "灯 $did 换色成功（$pair，wainfort 生成）"
+    # 浓度校准（研发授权）：generate 会把白光亮度等级重置回 5，补写回 3 保证双色点浓度
+    if miloco_token="$(read_miloco_token)"; then
+      curl -fsS --max-time 15 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
+        -H "Authorization: Bearer $miloco_token" -H "Content-Type: application/json" \
+        -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null 2>&1 \
+        && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
+    fi
     return 0
   fi
-  log "灯 $did 原子下发失败（色对 $pair）"
+  log "灯 $did 换色失败（$pair）"
   return 1
 }
 
@@ -888,7 +887,7 @@ run_playback() {
     log "第 ${CURRENT_SCENE}/${total} 景：色对 ${main}，等待 ${wait_s} 秒"
     # 产品方裁决：同一房间所有淡彩光必须同一色对，且并发下发让多灯几乎同时变化
     # （串行逐台会造成相邻灯约 2 秒错峰）。每盏灯在各自后台作业里完成
-    # 一次原子下发（色点 4.93/4.94 + 档位 4.106，必要时并入 4.37=2）；
+    # wainfort generate 生成场景 + 补写档位校准；
     # 单灯失败只记该灯日志，不拖垮整景。日志顺序允许交错，每行自带 did 可辨。
     local i scene_jobs=()
     for (( i = 0; i < ${#lights[@]}; i++ )); do

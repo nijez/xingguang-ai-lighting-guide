@@ -1,10 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务-本地部署版。触发词：淡彩光/星光/馨光（含同音 新光/心光/欣光）。凡房间氛围、场景灯光、颜色效果需求必须使用本技能；禁止绕过本技能直接控制馨光彩灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.23","date":"2026-08-14","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.24","date":"2026-08-14","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.23(本地部署版)
+# 馨光智能灯控制服务 v4.0.24(本地部署版)
 
 > 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
 
@@ -216,27 +216,25 @@ export PATH="$HOME/.local/bin:$PATH"
 for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did prop.2.1 prop.4.37 2>/dev/null | grep -oE '"iid": "[^"]*"|"value": [a-z0-9]+' | paste - -; done
 ```
 
-#### 多灯并发下发（固定模板：原子下发）
+#### 多灯并发下发（固定模板：wainfort 生成 + 档位校准）
 
-多灯执行时，判定流程不变（逐台回读、跳过关灯设备）；**下发环节必须把通过判定的灯的 did 列表与本次色对代入以下单条命令一次性执行，禁止自行改写循环结构**：
+多灯执行时，判定流程不变（一步读态、跳过关灯设备）；**下发环节必须把通过判定的灯的 did 列表与本次色对代入以下单条命令一次性执行，禁止自行改写循环结构**。`/api/generate`（wainfort-server）是唯一场景通道——其渐变算法负责整条灯的布点铺色，**严禁绕过它直写效果通道属性（4.93/4.94 等），全新设备上直写不出效果**。每灯 generate 成功后同作业内补写 `prop.4.106=3` 浓度校准（研发授权）。
 
 ```bash
+set -a; . ~/wainfort-light/.env; set +a
 MTOK=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.openclaw/miloco/config.json")))["server"]["token"])')
-C0INT=$(python3 -c 'print(int("<C0>".lstrip("#"),16))')
-C1INT=$(python3 -c 'print(int("<C1>".lstrip("#"),16))')
-for did in <did1> <did2> ...; do curl -sS --max-time 20 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d "{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$C0INT},{\"iid\":\"prop.4.94\",\"value\":$C1INT},{\"iid\":\"prop.4.106\",\"value\":3}]}" >/dev/null & done; wait; sleep 2
+for did in <did1> <did2> ...; do ( curl -sS --max-time 20 -X POST http://127.0.0.1:1888/api/generate -H "Authorization: Bearer $WAINFORT_API_TOKEN" -H "Content-Type: application/json" -d "{\"did\":\"$did\",\"color0\":\"<C0>\",\"color1\":\"<C1>\",\"brightness\":100}" >/dev/null && curl -sS --max-time 15 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d '"'"'{"type":"set_property","iid":"prop.4.106","value":3}'"'"' >/dev/null ) & done; wait; sleep 2
 export PATH="$HOME/.local/bin:$PATH"
 for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did prop.2.1 prop.2.4 2>/dev/null | grep -oE '"value": [a-z0-9]+'; done
 ```
 
-- `<C0>`/`<C1>` 替换为本次两个色点（#RRGGBB 格式）；`C0INT`/`C1INT` 两行是**色值转十进制整数的固定写法**，逐字照抄、只改色值。
-- `"value":3` 是白光亮度等级默认档；用户明确指定等级时替换为用户值（1-10）。
-- ⚠️ **硬性步骤（真机事故教训：漏做会导致"报成功但灯不变"）**：一步读态里 `prop.4.37` 不为 2 的每一盏灯，**必须**把 `{"iid":"prop.4.37","value":2}` 追加进该灯这条命令的 `properties` 数组（仍是同一次写入）——效果通道只在动态模式下出光，不切模式等于白写。读取失败或已为 2 则不追加。
-- 一次写入一次渲染：色点（4.93/4.94）与档位（4.106）同批生效，无 generate 触发、无档位重置、无二次跳变。并发下发保证多灯几乎同时变化；命令尾部已含全部灯的批量回读（开关+颜色属性），以此作为确认依据，不再单独执行回读轮次。
+- `<C0>`/`<C1>` 替换为本次两个色点（#RRGGBB 格式）。
+- 校准里的 `"value":3` 是白光亮度等级默认档；用户明确指定等级时替换为用户值（1-10）。
+- 已知观感：generate 触发会把档位重置回 5，校准补写回 3 会产生一次二次渲染（待研发 generate 自带档位后消失），如实告知即可，不算失败。命令尾部已含全部灯的批量回读（开关+颜色属性），以此作为确认依据。
 
-#### 备用路径：/api/generate（兼容旧环境）
+#### /api/generate 说明
 
-> **仅当本机 miloco 后端的 `/api/miot/devices/{did}/control` 原子下发不可用（旧版部署）时才使用**；该路径需要 wainfort-server 在运行，wainfort-server 不可用时此备用路径同样不可用，须如实告知用户，不得假装成功。已知限制（如实告知）：generate 每次触发会把 `prop.4.106` 白光亮度等级重置回 5，观感偏白。
+> wainfort-server 必须在运行（体检面板可查）；不可用时须如实告知用户，不得假装成功，也**严禁改用直写设备属性的方式代替**。
 
 ```bash
 curl -X POST http://127.0.0.1:1888/api/generate \
