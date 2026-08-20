@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.6.0"
+XINGUANG_SHOW_VERSION="1.7.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -606,15 +606,47 @@ if match:
 ' 2>/dev/null || true
 }
 
-# 场景下发（1.6.0 架构回正，King 裁决）：wainfort-server /api/generate 是唯一场景通道——
-# 其渐变算法负责分段布点/方向/长度适配，直写效果通道在全新设备上不出效果（真机实证），
-# 且绕过馨光自有服务在产品上不成立。generate 成功后直连 miloco 后端补写 4.106=3
-# （研发授权的档位校准，非场景旁路）。已知妥协：generate 触发会把档位重置回 5，
-# 补写造成每景两次渲染——待研发让 generate 自带档位/默认 3 后此补写退役。
+# 场景下发（1.7.0 混合架构，King 裁决「先编程、后优化」）：
+# wainfort /api/generate 是每盏灯的必经编程通道（布点/模式/分段算法归它，严禁绕过）；
+# 已被 generate 编程过的灯（本地清单记录）后续切换走原子刷新（色点+档位同批，单次渲染），
+# 即稳定的"一次性输出白光亮度等级 3"。首次编程仍有一次档位补写二次渲染（仅此一次），
+# 待研发版本解决 generate 强制档位 5 后可进一步简化。
 # 整灯亮度 prop.2.2 禁写铁律不变：本函数不写任何 2.x 属性。
+INITIALIZED_LAMPS_FILE="$HOME/wainfort-light/initialized-lamps.txt"
+
+lamp_initialized() {
+  [[ -f "$INITIALIZED_LAMPS_FILE" ]] && grep -qx "$1" "$INITIALIZED_LAMPS_FILE"
+}
+
+mark_lamp_initialized() {
+  mkdir -p "$(dirname "$INITIALIZED_LAMPS_FILE")" 2>/dev/null || true
+  lamp_initialized "$1" || printf '%s\n' "$1" >>"$INITIALIZED_LAMPS_FILE" 2>/dev/null || true
+}
+
 apply_light_color() {
-  local did="$1" pair="$2" c0 c1 body miloco_token
+  local did="$1" pair="$2" c0 c1 c0_int c1_int body miloco_token
   IFS=',' read -r c0 c1 <<<"$pair"
+  if ! miloco_token="$(read_miloco_token)"; then
+    log "灯 $did 下发失败（未读到 miloco token）"
+    return 1
+  fi
+
+  if lamp_initialized "$did"; then
+    # 已编程灯：原子刷新（单次渲染，档位 3 同批）
+    c0_int="$(color_to_int "$c0")"
+    c1_int="$(color_to_int "$c1")"
+    body="{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$c0_int},{\"iid\":\"prop.4.94\",\"value\":$c1_int},{\"iid\":\"prop.4.106\",\"value\":3}]}"
+    if curl -fsS --max-time 20 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
+      -H "Authorization: Bearer $miloco_token" \
+      -H "Content-Type: application/json" \
+      -d "$body" >/dev/null 2>&1; then
+      log "灯 $did 原子刷新成功（色对 $pair，档位 3）"
+      return 0
+    fi
+    log "灯 $did 原子刷新失败，转 wainfort 编程通道重试"
+  fi
+
+  # 未编程灯（或原子刷新失败兜底）：wainfort generate 完整编程 + 档位校准
   if [[ ! -f "$WAINFORT_ENV_FILE" ]]; then
     log "灯 $did 下发失败（缺少 wainfort 环境文件）"
     return 1
@@ -625,14 +657,12 @@ apply_light_color() {
     -H "Authorization: Bearer ${WAINFORT_API_TOKEN:-}" \
     -H "Content-Type: application/json" \
     -d "$body" >/dev/null 2>&1; then
-    log "灯 $did 换色成功（$pair，wainfort 生成）"
-    # 浓度校准（研发授权）：generate 会把白光亮度等级重置回 5，补写回 3 保证双色点浓度
-    if miloco_token="$(read_miloco_token)"; then
-      curl -fsS --max-time 15 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
-        -H "Authorization: Bearer $miloco_token" -H "Content-Type: application/json" \
-        -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null 2>&1 \
-        && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
-    fi
+    log "灯 $did 编程换色成功（$pair，wainfort 生成）"
+    curl -fsS --max-time 15 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
+      -H "Authorization: Bearer $miloco_token" -H "Content-Type: application/json" \
+      -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null 2>&1 \
+      && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
+    mark_lamp_initialized "$did"
     return 0
   fi
   log "灯 $did 换色失败（$pair）"
