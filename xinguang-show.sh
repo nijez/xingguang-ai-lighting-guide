@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.7.0"
+XINGUANG_SHOW_VERSION="1.8.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -320,6 +320,158 @@ list_shows() {
     return 1
   fi
   say "播放请执行：xinguang-show <秀名>；演练请执行：xinguang-show --dry-run <秀名>"
+}
+
+# ==== 场景直达（--scene）：招牌预设一条命令执行 ====
+# 预设文件：安装目录 shows/presets.scene（预置）＋ ~/wainfort-light/shows/presets.scene（自定义追加）。
+# TAB 分隔每行一景：场景名<TAB>#RRGGBB,#RRGGBB；同名场景自定义优先。
+PRESET_SCENE_BASENAME="presets.scene"
+
+SCENE_NAMES=()
+SCENE_PAIRS=()
+load_scene_presets() {
+  local file name pair rest preset seen=$'\n'
+  local files=()
+  SCENE_NAMES=()
+  SCENE_PAIRS=()
+  [[ -f "$CUSTOM_SHOW_DIR/$PRESET_SCENE_BASENAME" ]] && files+=("$CUSTOM_SHOW_DIR/$PRESET_SCENE_BASENAME")
+  if preset="$(preset_show_dir)" && [[ -f "$preset/$PRESET_SCENE_BASENAME" ]]; then
+    files+=("$preset/$PRESET_SCENE_BASENAME")
+  fi
+  for file in ${files[@]+"${files[@]}"}; do
+    while IFS=$'\t' read -r name pair rest || [[ -n "${name:-}" ]]; do
+      [[ -n "${name:-}" && "${name:0:1}" != "#" ]] || continue
+      if [[ -z "${pair:-}" || -n "${rest:-}" ]] || ! valid_pair "${pair:-}"; then
+        say "提醒：预设场景「${name}」色对不合法（要求 #RRGGBB,#RRGGBB），已忽略"
+        continue
+      fi
+      # 同名去重：自定义文件先读，故自定义优先
+      case "$seen" in *$'\n'"$name"$'\n'*) continue ;; esac
+      seen="${seen}${name}"$'\n'
+      SCENE_NAMES+=("$name")
+      SCENE_PAIRS+=("$pair")
+    done <"$file"
+  done
+  if (( ${#SCENE_NAMES[@]} == 0 )); then
+    say "还没有可用的招牌场景预设（缺少 presets.scene），请先完成馨光部署"
+    return 1
+  fi
+  return 0
+}
+
+list_scene_presets() {
+  local i
+  say "可用的招牌场景："
+  for (( i = 0; i < ${#SCENE_NAMES[@]}; i++ )); do
+    say "  ${SCENE_NAMES[$i]}"
+  done
+  say "执行请用：xinguang-show --scene <场景名> [--room 房间]"
+}
+
+# 场景名互为包含匹配（"蓝调"命中"蓝调时刻"）；多命中列清单、零命中列可用场景，均返回 1
+SCENE_MATCH_NAME=""
+SCENE_MATCH_PAIR=""
+resolve_scene() {
+  local query="$1" i
+  local hits=()
+  SCENE_MATCH_NAME=""
+  SCENE_MATCH_PAIR=""
+  for (( i = 0; i < ${#SCENE_NAMES[@]}; i++ )); do
+    if [[ "${SCENE_NAMES[$i]}" == *"$query"* || "$query" == *"${SCENE_NAMES[$i]}"* ]]; then
+      hits+=("$i")
+    fi
+  done
+  if (( ${#hits[@]} == 0 )); then
+    say "没有找到名为「${query}」的招牌场景"
+    list_scene_presets
+    return 1
+  fi
+  if (( ${#hits[@]} > 1 )); then
+    say "「${query}」命中了多个招牌场景，请用更完整的名称指定："
+    for i in "${hits[@]}"; do
+      say "  ${SCENE_NAMES[$i]}"
+    done
+    return 1
+  fi
+  SCENE_MATCH_NAME="${SCENE_NAMES[${hits[0]}]}"
+  SCENE_MATCH_PAIR="${SCENE_PAIRS[${hits[0]}]}"
+  return 0
+}
+
+# 场景直达执行：前台同步（不写 PID/状态文件、不进后台体系、不涉播报），
+# 复用既有设备发现/房间单灯过滤/关灯跳过/并发 apply_light_color 双通道。
+# dry_run=1 只打印将执行的动作，不触任何设备。
+cmd_scene() {
+  local query="$1" dry_run="$2" want_room="${3:-}" want_lamp="${4:-}"
+  local i ok=0 fail=0 fail_names="" summary
+  local pids=() results=()
+
+  load_scene_presets || exit 1
+  resolve_scene "$query" || exit 1
+  say "招牌场景「${SCENE_MATCH_NAME}」，色对 ${SCENE_MATCH_PAIR}"
+
+  if [[ "$dry_run" == 1 ]]; then
+    say "演练模式：只打印动作，不控制任何设备"
+  else
+    # 灯光服务令牌（不上屏、不落日志）：未编程灯的 generate 编程通道需要
+    if [[ -f "$WAINFORT_ENV_FILE" ]]; then
+      set -a
+      # shellcheck disable=SC1090
+      . "$WAINFORT_ENV_FILE"
+      set +a
+    fi
+    if [[ -z "${WAINFORT_API_TOKEN:-}" ]]; then
+      say "灯光服务配置缺失，请先完成馨光部署再执行"
+      exit 1
+    fi
+  fi
+
+  # 发现＋过滤复用播放通道（no_speaker：场景直达不涉播报，不找音箱）
+  discover_for_playback "$want_room" "$want_lamp" no_speaker || exit 1
+
+  if [[ "$dry_run" == 1 ]]; then
+    for (( i = 0; i < ${#LIGHTS[@]}; i++ )); do
+      say "将下发｜${LIGHTS[$i]}｜${LIGHT_NAMES[$i]}｜色对 ${SCENE_MATCH_PAIR}（双通道：已编程灯原子刷新，未编程灯 generate 编程＋档位校准）"
+    done
+    say "演练完成：「${SCENE_MATCH_NAME}」将打到 ${#LIGHTS[@]} 盏灯，未向设备下发任何命令"
+    return 0
+  fi
+
+  # 并发下发：每盏灯各自后台作业走 apply_light_color 双通道，单灯失败不拖垮整批
+  for (( i = 0; i < ${#LIGHTS[@]}; i++ )); do
+    apply_light_color "${LIGHTS[$i]}" "$SCENE_MATCH_PAIR" &
+    pids+=("$!")
+  done
+  for (( i = 0; i < ${#pids[@]}; i++ )); do
+    if wait "${pids[$i]}" 2>/dev/null; then
+      results+=("成功")
+      ok=$((ok + 1))
+    else
+      results+=("失败")
+      fail=$((fail + 1))
+      fail_names="${fail_names:+$fail_names }${LIGHT_NAMES[$i]}"
+    fi
+  done
+
+  say "逐灯结果："
+  say "did|名称|下发结果"
+  for (( i = 0; i < ${#LIGHTS[@]}; i++ )); do
+    say "${LIGHTS[$i]}|${LIGHT_NAMES[$i]}|${results[$i]}"
+  done
+
+  summary="「${SCENE_MATCH_NAME}」已打到 ${ok} 盏灯"
+  if (( fail > 0 )); then
+    summary="${summary}；下发失败 ${fail} 盏：${fail_names}"
+  fi
+  if (( ${#OFF_NAMES[@]} > 0 )); then
+    summary="${summary}；跳过关灯 ${#OFF_NAMES[@]} 盏：${OFF_NAMES[*]}"
+  fi
+  say "$summary"
+  log "场景直达「${SCENE_MATCH_NAME}」完成：成功 ${ok}，失败 ${fail}，跳过关灯 ${#OFF_NAMES[@]}"
+  if (( ok == 0 )); then
+    exit 1
+  fi
+  return 0
 }
 
 running_pid() {
@@ -717,13 +869,14 @@ on_stop_signal() {
 
 # 设备发现 + 范围过滤：结果写入 LIGHTS/LIGHT_NAMES/OFF_NAMES/SPEAKER_DIDS/HAS_SPEAKER
 # $1=--room 多值（逗号分隔，可空）；$2=--lamp 多值（逗号分隔，可空）；同给取交集
+# $3 非空（场景直达用）＝跳过音箱选取，只做灯的发现/过滤/关灯跳过
 LIGHTS=()
 LIGHT_NAMES=()
 OFF_NAMES=()
 SPEAKER_DIDS=()
 HAS_SPEAKER=0
 discover_for_playback() {
-  local want_rooms="$1" want_lamps="${2:-}" discovery filtered did name room state
+  local want_rooms="$1" want_lamps="${2:-}" skip_speaker="${3:-}" discovery filtered did name room state
   local participating_rooms="" speaker_rooms="" sdid s dup r
   LIGHTS=()
   LIGHT_NAMES=()
@@ -780,6 +933,9 @@ discover_for_playback() {
     return 1
   fi
   say "本次演示将使用 ${#LIGHTS[@]} 盏灯：${LIGHT_NAMES[*]}"
+
+  # 场景直达不涉播报：到此为止，不做音箱选取
+  [[ -n "$skip_speaker" ]] && return 0
 
   # 音箱选取：
   #   给了 --room：每个指定房间各取一台含 play-text 的音箱（按 did 去重）；
@@ -1020,6 +1176,9 @@ usage() {
                                          如 --room 门市,二楼客厅；重复传 --room 也可以）
   xinguang-show --lamp <灯名或did> <秀名>  只用指定的灯播放（多盏用逗号分隔；名称互为包含即命中，
                                          多命中会列候选让你补全；与 --room 同给时取交集）
+  xinguang-show --scene <场景名>         场景直达：把招牌预设场景一条命令打到灯上（前台同步执行，
+                                         互为包含匹配，如 --scene 蓝调 命中「蓝调时刻」；
+                                         可配 --room/--lamp 限定范围，配 --dry-run 只打印不触设备）
   xinguang-show --dry-run <秀名>         演练：只打印动作，不控制设备
   xinguang-show --save <路径或秀名> <新名>  校验通过后保存为自定义秀
   xinguang-show --status                 查看是否在播、播到第几景
@@ -1029,12 +1188,17 @@ EOF
 
 main() {
   command -v python3 >/dev/null 2>&1 || { say "缺少 python3，无法运行演示引擎，请联系工作人员处理"; exit 1; }
-  local dry_run=0 room="${XINGUANG_SHOW_ROOM:-}" lamp="${XINGUANG_SHOW_LAMP:-}" names=()
+  local dry_run=0 room="${XINGUANG_SHOW_ROOM:-}" lamp="${XINGUANG_SHOW_LAMP:-}" scene="" names=()
   while (( $# > 0 )); do
     case "$1" in
       --dry-run)
         dry_run=1
         shift
+        ;;
+      --scene)
+        [[ -n "${2:-}" ]] || { say "--scene 后面需要招牌场景名（如 --scene 蓝调时刻）"; exit 1; }
+        scene="$2"
+        shift 2
         ;;
       --room)
         [[ -n "${2:-}" ]] || { say "--room 后面需要房间名（多个用逗号分隔）"; exit 1; }
@@ -1081,6 +1245,16 @@ main() {
         ;;
     esac
   done
+
+  if [[ -n "$scene" ]]; then
+    # --scene 与播放秀入口互斥：场景直达是前台同步命令，不进秀播放体系
+    if (( ${#names[@]} > 0 )); then
+      say "--scene 是场景直达命令，不能与秀名同时给；播放秀请去掉 --scene，场景直达请去掉秀名"
+      exit 1
+    fi
+    cmd_scene "$scene" "$dry_run" "$room" "$lamp"
+    return 0
+  fi
 
   if (( ${#names[@]} == 0 )); then
     if (( dry_run )); then

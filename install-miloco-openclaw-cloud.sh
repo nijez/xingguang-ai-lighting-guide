@@ -47,7 +47,7 @@ STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.21}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.21}"
 XINGUANG_PANEL_VERSION="1.1.0"
-XINGUANG_SHOW_VERSION="1.7.0"
+XINGUANG_SHOW_VERSION="1.8.0"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 absolute_path() {
@@ -3414,13 +3414,14 @@ prepare_xinguang_panel() {
 }
 
 prepare_xinguang_show() {
-  local install_dir bin_dir show path_show show_dir show_data show_header
+  local install_dir bin_dir show path_show show_dir show_data show_header scene_data scene_header
   install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
   bin_dir="$HOME/.local/bin"
   show="$install_dir/xinguang-show"
   path_show="$bin_dir/xinguang-show"
   show_dir="$install_dir/shows"
   show_data="$show_dir/chuantongse.show"
+  scene_data="$show_dir/presets.scene"
 
   mkdir -p "$install_dir" "$bin_dir" "$show_dir"
 
@@ -3438,6 +3439,13 @@ prepare_xinguang_show() {
     "https://nijez.github.io/xingguang-ai-lighting-guide/shows/chuantongse.show" \
     "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/chuantongse.show" \
     "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/chuantongse.show" ||
+    die
+
+  scene_header="$(printf '蓝调时刻\t#1A3AFF,#66E0FF')"
+  download_versioned_file_or_keep "招牌场景预设数据（presets.scene）" "$scene_data" "$scene_header" \
+    "https://nijez.github.io/xingguang-ai-lighting-guide/shows/presets.scene" \
+    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/presets.scene" \
+    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/presets.scene" ||
     die
 }
 
