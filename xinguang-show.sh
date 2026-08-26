@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.8.0"
+XINGUANG_SHOW_VERSION="1.8.1"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -103,6 +103,37 @@ lamp_name_matches() {
   ln="$(to_lower "$name")"
   [[ -n "$lt" && -n "$ln" ]] || return 1
   [[ "$ln" == *"$lt"* || "$lt" == *"$ln"* ]]
+}
+
+# 宽松房间匹配（回退层）：目标房间名的每个字符都出现在设备房间名中即命中——
+# 解决口语称呼与米家命名的差异（真机实证：「客厅」应命中「客餐厅」，互含因"餐"隔断失败）
+room_matches_loose() {
+  local dev_room="$1" want_room="$2" i ch
+  [[ -n "$dev_room" && -n "$want_room" ]] || return 1
+  for (( i=0; i<${#want_room}; i++ )); do
+    ch="${want_room:$i:1}"
+    [[ "$dev_room" == *"$ch"* ]] || return 1
+  done
+  return 0
+}
+
+room_matches_any_loose() {
+  local dev_room="$1" rooms_csv="$2" r
+  [[ -z "$rooms_csv" ]] && return 0
+  while IFS= read -r r; do
+    room_matches_loose "$dev_room" "$r" && return 0
+  done < <(split_csv "$rooms_csv")
+  return 1
+}
+
+filter_lights_by_rooms_loose() {
+  local discovery="$1" rooms_csv="$2" did name room
+  while IFS=$'	' read -r did name room; do
+    [[ -n "$did" ]] || continue
+    room_matches_any_loose "${room:-}" "$rooms_csv" || continue
+    printf '%s	%s	%s
+' "$did" "$name" "$room"
+  done <<<"$discovery"
 }
 
 # 按多值房间过滤设备清单（did<TAB>名称<TAB>房间），逐行输出命中的
@@ -900,6 +931,18 @@ discover_for_playback() {
 
   # 先按房间过滤（多房间取并集），再解析 --lamp（与房间范围取交集）
   filtered="$(filter_lights_by_rooms "$discovery" "$want_rooms")"
+  if [[ -n "$want_rooms" && -z "$(printf '%s' "$filtered" | tr -d '[:space:]')" ]]; then
+    # 严格互含零命中：宽松逐字回退（如「客厅」→「客餐厅」）
+    filtered="$(filter_lights_by_rooms_loose "$discovery" "$want_rooms")"
+    if [[ -n "$(printf '%s' "$filtered" | tr -d '[:space:]')" ]]; then
+      matched_rooms="$(printf '%s\n' "$filtered" | awk -F'\t' '{print $3}' | sort -u | paste -sd'、' -)"
+      say "按相近房间名匹配：$(quote_tokens "$want_rooms")→「${matched_rooms}」"
+    else
+      all_rooms="$(printf '%s\n' "$discovery" | awk -F'\t' 'NF>=3{print $3}' | sort -u | paste -sd'、' -)"
+      say "$(quote_tokens "$want_rooms")没有找到馨光灯。本家庭有馨光灯的房间：${all_rooms:-无}，请换用这些房间名再试"
+      return 1
+    fi
+  fi
   if [[ -n "$want_lamps" ]]; then
     resolve_lamp_selection "$want_lamps" "$filtered" "$want_rooms" || return 1
     filtered="$SELECTED_LINES"
