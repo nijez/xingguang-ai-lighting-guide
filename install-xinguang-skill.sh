@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.21"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.22"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -30,6 +30,8 @@ LIGHT_TEST_MODE="${LIGHT_TEST_MODE:-single-shot}"
 LIGHT_TEST_UNSTABLE="${LIGHT_TEST_UNSTABLE:-0}"
 
 SKILL_URLS="${SKILL_URLS:-https://nijez.github.io/xingguang-ai-lighting-guide/skills/wainfort-ai-lighting-run/SKILL.md https://nijez.github.io/xingguang-ai-lighting-guide/wainfort-ai-lighting-run-skill.txt https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/skills/wainfort-ai-lighting-run/SKILL.md https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/skills/wainfort-ai-lighting-run/SKILL.md}"
+# .22: Skill 附录（4.x 属性速查，只读参考）。下载失败不阻断安装。
+REFERENCE_URLS="${REFERENCE_URLS:-https://nijez.github.io/xingguang-ai-lighting-guide/skills/wainfort-ai-lighting-run/reference-prop4x.md https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/skills/wainfort-ai-lighting-run/reference-prop4x.md https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/skills/wainfort-ai-lighting-run/reference-prop4x.md}"
 
 ENV_FILE="$INSTALL_DIR/.env"
 SERVER_BIN="$INSTALL_DIR/wainfort-server"
@@ -413,6 +415,16 @@ download_skill() {
   XINGUANG_SKILL_VERSION="$(skill_metadata_version "$PUBLIC_SKILL_DIR/SKILL.md" 2>/dev/null || true)"
   [[ -n "$XINGUANG_SKILL_VERSION" ]] || die "馨光 Skill 版本信息缺失"
   grep -q "$SKILL_COMPANY" "$PUBLIC_SKILL_DIR/SKILL.md" || die "馨光 Skill 公司信息校验失败"
+
+  # .22: 附录 reference-prop4x.md 随包分发；SKILL.md 会引用它。全源失败仅告警不阻断。
+  # shellcheck disable=SC2206
+  local ref_urls=($REFERENCE_URLS)
+  local ref_rc=0
+  download_file "$PUBLIC_SKILL_DIR/reference-prop4x.md" "${ref_urls[@]}" || ref_rc=$?
+  if (( ref_rc == 1 )); then
+    log "警告：Skill 附录 reference-prop4x.md 下载失败，本次不含附录（不影响控灯功能）"
+  fi
+
   state_mark "SKILL_VERSION_FETCHED=$XINGUANG_SKILL_VERSION"
   state_mark SKILL_DOWNLOAD_DONE
 }
@@ -461,8 +473,13 @@ text = text.replace("你自定义的APIToken", token)
 text = text.replace("你的APIToken", token)
 open(path, "w", encoding="utf-8").write(text)
 PY
+  # .22: 附录随 Skill 目录一并安装（存在才拷，缺失不阻断）
+  if [[ -s "$PUBLIC_SKILL_DIR/reference-prop4x.md" ]]; then
+    cp "$PUBLIC_SKILL_DIR/reference-prop4x.md" "$LOCAL_SKILL_DIR/reference-prop4x.md"
+  fi
   chmod 700 "$LOCAL_SKILL_DIR" 2>/dev/null || true
   chmod 600 "$LOCAL_SKILL_FILE" 2>/dev/null || true
+  chmod 600 "$LOCAL_SKILL_DIR/reference-prop4x.md" 2>/dev/null || true
   ! grep -qE 'wainfort-ai-2026-你的本地Token|你自定义的APIToken|你的APIToken' "$LOCAL_SKILL_FILE" ||
     die "馨光 Skill 本地配置未完成"
   state_mark SKILL_LOCAL_CONFIG_READY
