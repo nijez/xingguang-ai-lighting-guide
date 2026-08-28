@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.54"
+SCRIPT_VERSION="2026-06-25.55"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2272,6 +2272,22 @@ sync_mimo_key_to_miloco() {
   log "MiMo Key 已同步"
 }
 
+# .55: miloco 插件经 npm 安装。实测 npm 10 有依赖树崩溃缺陷（arborist edgesOut）、
+# npm 12 拒绝镜像直链依赖（EALLOWREMOTE），仅 npm 11 全兼容——安装前统一切到 11。
+ensure_npm11_for_plugin() {
+  have npm || return 0
+  local major
+  major="$(npm -v 2>/dev/null | cut -d. -f1)"
+  [[ "$major" == "11" ]] && return 0
+  log "检测到 npm ${major:-未知}.x，正在切换到 npm 11（兼容灯光插件安装）"
+  if npm install -g npm@11 >/dev/null 2>&1 ||
+    npm install -g npm@11 --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+    log "npm 已切换到 $(npm -v 2>/dev/null)"
+  else
+    log "警告：npm 11 切换失败，灯光插件安装可能受影响，继续尝试"
+  fi
+}
+
 install_miloco() {
   local installer="$WORK_DIR/install-miloco.sh"
   mapfile -t urls < <(miloco_installer_urls | rank_urls_by_speed "灯光插件安装器" 1)
@@ -2292,6 +2308,8 @@ install_miloco() {
 
   # .52 重装会用全新空库替换 miloco.db，必须先备份米家绑定数据。
   backup_miloco_user_data || true
+
+  ensure_npm11_for_plugin
 
   # Redirect stdin so Miloco installer skips Mi Home and model prompts.
   state_mark LIGHT_SERVICE_INSTALL_STARTED
