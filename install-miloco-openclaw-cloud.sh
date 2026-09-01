@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.62"
+SCRIPT_VERSION="2026-06-25.63"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -87,10 +87,19 @@ cleanup() {
 # 由监控端 INSTALLER_PID 死活判定覆盖。）
 INSTALLER_EXIT_GUARD_ARMED=0
 
+# .63: 本进程之外若仍有安装工作进程在跑，就不许写「未完成」标记——
+# 后台续跑成功会被提前标记误伤（前台据此误报「安装未完成」）。
+other_install_worker_alive() {
+  local pids
+  pids="$(pgrep -f '[x]inguang-light-install\.sh|[m]iloco-cloud-install|[i]nstall-miloco\.sh' 2>/dev/null | grep -vE "^($$|${PPID:-0})\$" || true)"
+  [[ -n "$pids" ]]
+}
+
 on_exit() {
   local status=$?
   if [[ "${INSTALLER_EXIT_GUARD_ARMED:-0}" == 1 ]] && (( status != 0 )) &&
-    ! install_complete_state && ! install_failed_state; then
+    ! install_complete_state && ! install_failed_state &&
+    ! other_install_worker_alive; then
     state_mark EXITED_BUT_INCOMPLETE || true
   fi
   cleanup
@@ -188,7 +197,8 @@ print_incomplete_report() {
   if install_complete_state; then
     return 0
   fi
-  state_mark EXITED_BUT_INCOMPLETE || true
+  # .63: 还有安装工作进程活着时不落失败标记（见 other_install_worker_alive 注释）
+  other_install_worker_alive || state_mark EXITED_BUT_INCOMPLETE || true
   cat >&2 <<EOF
 
 安装未完成，请联系工作人员处理。
@@ -1829,8 +1839,12 @@ run_miloco_phase() {
 
   if [[ "$PYPI_FALLBACK_OFFICIAL" == 1 && "$index_url" != "https://pypi.org/simple" ]]; then
     log "当前安装源暂不可用，正在使用备用安装源重试"
-    UV_DEFAULT_INDEX="https://pypi.org/simple" PIP_INDEX_URL="https://pypi.org/simple" bash "$installer" "$phase" </dev/null
-    return $?
+    # .63: 重试失败必须捕获返回码——裸调用的非零退出会触发全局 ERR 陷阱，
+    # 提前写 EXITED_BUT_INCOMPLETE 并打印「安装未完成」，而上层其实还有兜底
+    # （实测三轮：后端最终成功、终端门面却被此误报截断）。
+    local retry_rc=0
+    UV_DEFAULT_INDEX="https://pypi.org/simple" PIP_INDEX_URL="https://pypi.org/simple" bash "$installer" "$phase" </dev/null || retry_rc=$?
+    return "$retry_rc"
   fi
 
   return 1
