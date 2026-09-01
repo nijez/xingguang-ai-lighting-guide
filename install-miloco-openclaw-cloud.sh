@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.66"
+SCRIPT_VERSION="2026-06-25.67"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1838,7 +1838,14 @@ run_miloco_phase() {
   fi
 
   if [[ "$PYPI_FALLBACK_OFFICIAL" == 1 && "$index_url" != "https://pypi.org/simple" ]]; then
+    # .67: 服务本体已就绪说明失败点在插件授权步（2026.8.1 必现）——换源重试
+    # 无济于事，且会因缓存被清触发 68MB 慢速重下。直接返回交给补装兜底。
+    if [[ "$phase" == "--agent-finish" ]] && miloco_base_ready; then
+      log "灯光服务已就绪，失败点在插件授权步，跳过无效的备用源重试"
+      return 1
+    fi
     log "当前安装源暂不可用，正在使用备用安装源重试"
+    ensure_miloco_cache_ready
     # .63: 重试失败必须捕获返回码——裸调用的非零退出会触发全局 ERR 陷阱，
     # 提前写 EXITED_BUT_INCOMPLETE 并打印「安装未完成」，而上层其实还有兜底
     # （实测三轮：后端最终成功、终端门面却被此误报截断）。
@@ -2372,6 +2379,19 @@ ensure_miloco_cache_ready() {
   log "灯光组件缓存已恢复，米洛科将直接使用"
 }
 
+# .67: 从缓存/持久归档取插件 tgz，带授权代装（零下载）
+install_miloco_plugin_with_consent() {
+  local tgz
+  tgz="$(ls -t "$MILOCO_HOME"/.install-cache/*/miloco-openclaw-plugin-*.tgz 2>/dev/null | head -n 1)"
+  if [[ -z "$tgz" ]]; then
+    ensure_miloco_cache_ready
+    tgz="$(ls -t "$MILOCO_HOME"/.install-cache/*/miloco-openclaw-plugin-*.tgz 2>/dev/null | head -n 1)"
+  fi
+  [[ -n "$tgz" ]] || return 1
+  openclaw plugins install --force "$tgz" --accept-capabilities >/dev/null 2>&1 || return 1
+  openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
+}
+
 install_miloco() {
   local installer="$WORK_DIR/install-miloco.sh"
   mapfile -t urls < <(miloco_installer_urls | rank_urls_by_speed "灯光插件安装器" 1)
@@ -2403,29 +2423,15 @@ install_miloco() {
   # .66: prepare 与 finish 之间缓存可能被清 → 用本地归档零下载恢复
   ensure_miloco_cache_ready
 
-  # .61: OpenClaw 2026.8.1 下米洛科安装器内部的 plugins install 缺 --accept-capabilities
-  # 会被 CLI 拒载（实测），且其收尾会清掉插件 tgz——盯梢缓存目录抢先备份一份，
-  # 米洛科装插件失败时由我们带授权参数代装。已报米洛科修复，修复后本兜底自然闲置。
-  rm -f "$WORK_DIR/miloco-plugin-keep.tgz"
-  (
-    for _ in $(seq 1 900); do
-      t="$(ls -t "$HOME"/.openclaw/miloco/.install-cache/*/miloco-openclaw-plugin-*.tgz 2>/dev/null | head -n 1)"
-      [[ -n "$t" ]] && cp -f "$t" "$WORK_DIR/miloco-plugin-keep.tgz" 2>/dev/null
-      sleep 4
-    done
-  ) >/dev/null 2>&1 &
-  MILOCO_TGZ_WATCHER_PID=$!
-
   local finish_rc=0
   run_miloco_phase "$installer" --agent-finish || finish_rc=$?
-  kill "$MILOCO_TGZ_WATCHER_PID" >/dev/null 2>&1 || true
 
+  # .67: OpenClaw 2026.8.1 下米洛科安装器的裸 plugins install 必失败（缺
+  # --accept-capabilities，实验证实预授权也救不了 --force 重装）。由我们代装：
+  # 插件 tgz 从持久归档里抽（本地已有，零下载）。已报米洛科在安装器加该参数。
   if ! openclaw plugins list 2>/dev/null | grep -qi "miloco-openclaw"; then
-    if [[ -s "$WORK_DIR/miloco-plugin-keep.tgz" ]]; then
-      log "米洛科安装器未装上灯光插件（2026.8.1 授权门槛），正在带授权补装"
-      openclaw plugins install --force "$WORK_DIR/miloco-plugin-keep.tgz" --accept-capabilities >/dev/null 2>&1 || true
-      openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
-    fi
+    log "米洛科安装器未装上灯光插件（2026.8.1 授权门槛，米洛科侧问题），正在带授权补装"
+    install_miloco_plugin_with_consent || log "警告：灯光插件补装未成功"
   fi
 
   if (( finish_rc != 0 )); then
