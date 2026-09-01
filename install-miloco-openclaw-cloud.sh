@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.60"
+SCRIPT_VERSION="2026-06-25.61"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2356,7 +2356,32 @@ install_miloco() {
   state_mark MILOCO_INSTALL_STARTED
   run_miloco_phase "$installer" --agent-prepare
 
-  if ! run_miloco_phase "$installer" --agent-finish; then
+  # .61: OpenClaw 2026.8.1 下米洛科安装器内部的 plugins install 缺 --accept-capabilities
+  # 会被 CLI 拒载（实测），且其收尾会清掉插件 tgz——盯梢缓存目录抢先备份一份，
+  # 米洛科装插件失败时由我们带授权参数代装。已报米洛科修复，修复后本兜底自然闲置。
+  rm -f "$WORK_DIR/miloco-plugin-keep.tgz"
+  (
+    for _ in $(seq 1 900); do
+      t="$(ls -t "$HOME"/.openclaw/miloco/.install-cache/*/miloco-openclaw-plugin-*.tgz 2>/dev/null | head -n 1)"
+      [[ -n "$t" ]] && cp -f "$t" "$WORK_DIR/miloco-plugin-keep.tgz" 2>/dev/null
+      sleep 4
+    done
+  ) >/dev/null 2>&1 &
+  MILOCO_TGZ_WATCHER_PID=$!
+
+  local finish_rc=0
+  run_miloco_phase "$installer" --agent-finish || finish_rc=$?
+  kill "$MILOCO_TGZ_WATCHER_PID" >/dev/null 2>&1 || true
+
+  if ! openclaw plugins list 2>/dev/null | grep -qi "miloco-openclaw"; then
+    if [[ -s "$WORK_DIR/miloco-plugin-keep.tgz" ]]; then
+      log "米洛科安装器未装上灯光插件（2026.8.1 授权门槛），正在带授权补装"
+      openclaw plugins install --force "$WORK_DIR/miloco-plugin-keep.tgz" --accept-capabilities >/dev/null 2>&1 || true
+      openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if (( finish_rc != 0 )); then
     log "WARNING: 灯光插件收尾步骤返回异常，正在确认是否已安装完成"
     if miloco_base_ready; then
       log "灯光服务和灯光插件已就绪，继续后续步骤"
