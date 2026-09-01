@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.63"
+SCRIPT_VERSION="2026-06-25.64"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2397,12 +2397,14 @@ install_miloco() {
 
   ensure_npm11_for_plugin
 
-  prefetch_miloco_linux_package
-
   # Redirect stdin so Miloco installer skips Mi Home and model prompts.
   state_mark LIGHT_SERVICE_INSTALL_STARTED
   state_mark MILOCO_INSTALL_STARTED
   run_miloco_phase "$installer" --agent-prepare
+
+  # .64: 预下载必须放在 --agent-prepare 之后——prepare 会 rm -rf .install-cache，
+  # 放在它之前预下的包会被清掉，米洛科在 finish 阶段照样自己慢速重下（实测）。
+  prefetch_miloco_linux_package
 
   # .61: OpenClaw 2026.8.1 下米洛科安装器内部的 plugins install 缺 --accept-capabilities
   # 会被 CLI 拒载（实测），且其收尾会清掉插件 tgz——盯梢缓存目录抢先备份一份，
