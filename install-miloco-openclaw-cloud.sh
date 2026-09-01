@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.61"
+SCRIPT_VERSION="2026-06-25.62"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2328,6 +2328,38 @@ ensure_npm11_for_plugin() {
   fi
 }
 
+# .62: 米洛科安装器会直连 GitHub 下载 miloco-linux 主包（约68MB），国内速度剧烈波动
+# （实测 20KB/s~10.8MB/s）。这里用测速多源（GitHub直连/gh-proxy/ghproxy）预下到它的
+# 缓存路径，它见文件即免下。任何一步失败都静默放弃，交回米洛科自行下载，无副作用。
+prefetch_miloco_linux_package() {
+  local manifest="$WORK_DIR/manifest.json" version arch pkg cache_dir target
+  [[ -f "$manifest" ]] || return 0
+  version="$(manifest_value "$manifest" '.version' 2>/dev/null)" || return 0
+  [[ -n "$version" && "$version" != "null" ]] || return 0
+  arch="$(uname -m)"
+  [[ "$arch" == "x86_64" || "$arch" == "aarch64" ]] || return 0
+  pkg="miloco-linux-${arch}-${version}.tar.gz"
+  cache_dir="$MILOCO_HOME/.install-cache/$version"
+  target="$cache_dir/$pkg"
+  [[ -s "$target" ]] && return 0
+  mkdir -p "$cache_dir" 2>/dev/null || return 0
+  local base="github.com/XiaoMi/xiaomi-miloco/releases/download/v${version}/${pkg}"
+  local urls=(
+    "https://${base}"
+    "https://gh-proxy.com/https://${base}"
+    "https://ghproxy.net/https://${base}"
+  )
+  mapfile -t urls < <(printf '%s\n' "${urls[@]}" | rank_urls_by_speed "Miloco主包" 1)
+  log "正在预下载 Miloco 主包（多源测速，约68MB）"
+  if download_first "$target.prefetch" "${urls[@]}" && [[ "$(stat -c %s "$target.prefetch" 2>/dev/null || echo 0)" -gt 10000000 ]]; then
+    mv -f "$target.prefetch" "$target"
+    log "Miloco 主包预下载完成，米洛科安装器将直接使用"
+  else
+    rm -f "$target.prefetch"
+    log "Miloco 主包预下载未成功，交由米洛科安装器自行下载"
+  fi
+}
+
 install_miloco() {
   local installer="$WORK_DIR/install-miloco.sh"
   mapfile -t urls < <(miloco_installer_urls | rank_urls_by_speed "灯光插件安装器" 1)
@@ -2350,6 +2382,8 @@ install_miloco() {
   backup_miloco_user_data || true
 
   ensure_npm11_for_plugin
+
+  prefetch_miloco_linux_package
 
   # Redirect stdin so Miloco installer skips Mi Home and model prompts.
   state_mark LIGHT_SERVICE_INSTALL_STARTED
