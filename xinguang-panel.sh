@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.1"
+XINGUANG_PANEL_VERSION="1.2.2"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -404,6 +404,11 @@ cron_guard_timer_active() {
     systemctl is-active --quiet xinguang-cron-guard.timer >/dev/null 2>&1
 }
 
+# 1.2.2: 版本方向感知比较——线上确实更新才提示更新，本机较新（CDN缓存滞后等）视为最新
+version_remote_newer() {
+  [[ "$1" != "$2" ]] && [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$2" ]]
+}
+
 health_error() {
   [[ -n "$HEALTH_FIRST_ERROR" ]] || HEALTH_FIRST_ERROR="$1"
 }
@@ -419,12 +424,12 @@ check_install_script() {
     health_error "请执行“更新到最新版”。"
   elif [[ -z "$remote_version" ]]; then
     printf '✅ 安装脚本      %s（已安装；网络原因暂未核对新版）\n' "$local_version"
-  elif [[ "$local_version" == "$remote_version" ]]; then
-    printf '✅ 安装脚本      %s（最新）\n' "$local_version"
-  else
+  elif version_remote_newer "$local_version" "$remote_version"; then
     printf '❌ 安装脚本      %s（可更新到 %s）\n' "$local_version" "$remote_version"
     HEALTH_INSTALL_SCRIPT_OK=0
     health_error "请执行“更新到最新版”。"
+  else
+    printf '✅ 安装脚本      %s（最新）\n' "$local_version"
   fi
 }
 
@@ -440,12 +445,12 @@ check_skill() {
     health_error "请在龙虾对话里安装馨光 Skill。"
   elif [[ -z "$remote_version" ]]; then
     printf '✅ 馨光 Skill    %s（已安装；网络原因暂未核对新版）\n' "$local_version"
-  elif [[ "$local_version" == "$remote_version" ]]; then
-    printf '✅ 馨光 Skill    %s（最新）\n' "$local_version"
-  else
+  elif version_remote_newer "$local_version" "$remote_version"; then
     printf '❌ 馨光 Skill    %s（可更新到 %s）\n' "$local_version" "$remote_version"
     HEALTH_SKILL_OK=0
     health_error "请在龙虾对话里重新安装馨光 Skill。"
+  else
+    printf '✅ 馨光 Skill    %s（最新）\n' "$local_version"
   fi
 }
 
