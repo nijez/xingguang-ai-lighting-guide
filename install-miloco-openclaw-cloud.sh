@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.56"
+SCRIPT_VERSION="2026-06-25.57"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -46,7 +46,7 @@ LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.22}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.22}"
-XINGUANG_PANEL_VERSION="1.2.0"
+XINGUANG_PANEL_VERSION="1.2.1"
 XINGUANG_SHOW_VERSION="1.8.1"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
@@ -2023,12 +2023,26 @@ repair_gateway_deactivating_if_needed() {
   systemctl --user start "$unit" >/dev/null 2>&1 || true
 }
 
+# .57: OpenClaw 2026.8.1 起第三方插件需能力授权、DeepSeek 供应商拆为按需安装，
+# 否则网关拒绝就绪（实测崩溃循环）。旧版 openclaw 无这些参数时静默跳过，无副作用。
+ensure_openclaw_plugin_consent() {
+  have openclaw || return 0
+  openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
+  if grep -q '"deepseek"' "$HOME/.openclaw/openclaw.json" 2>/dev/null &&
+    ! openclaw plugins list 2>/dev/null | grep -qi deepseek; then
+    log "检测到 DeepSeek 配置但供应商插件缺失（OpenClaw 2026.8.1 拆包），正在补装"
+    openclaw plugins install deepseek --accept-capabilities >/dev/null 2>&1 || true
+  fi
+}
+
 restart_openclaw_gateway_best_effort() {
   setup_runtime_paths
   if ! have openclaw; then
     log "OpenClaw command not found; skipping gateway restart"
     return 0
   fi
+
+  ensure_openclaw_plugin_consent
 
   state_mark GATEWAY_RESTART_SCHEDULED
   if [[ "$RUN_CONTEXT" == agentchat_supervisor ]]; then

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.0"
+XINGUANG_PANEL_VERSION="1.2.1"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -902,6 +902,15 @@ run_openclaw_upgrade() {
   return "$status"
 }
 
+# 1.2.1: OpenClaw 2026.8.1+ 插件需能力授权、DeepSeek 供应商按需安装，升级后统一收敛
+converge_openclaw_plugins() {
+  runtime_command openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
+  if grep -q '"deepseek"' "$HOME/.openclaw/openclaw.json" 2>/dev/null &&
+    ! runtime_command openclaw plugins list 2>/dev/null | grep -qi deepseek; then
+    runtime_command_long openclaw plugins install deepseek --accept-capabilities >/dev/null 2>&1 || true
+  fi
+}
+
 # 10. 更新龙虾（OpenClaw）：当前版本对比 npm 双源 latest，有新版才升级并重启网关
 update_openclaw_component() {
   local current_version latest_version updated_version
@@ -930,10 +939,17 @@ update_openclaw_component() {
   fi
   printf '正在升级龙虾。\n'
   if ! run_openclaw_upgrade; then
-    printf '龙虾升级暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
-    return 0
+    # 1.2.1: 旧版升级器对新包有校验误报（包实际已更新），以版本号为准判断
+    updated_version="$(openclaw_cli_version || true)"
+    if [[ "$updated_version" == "$latest_version" ]]; then
+      printf '升级器提示了校验异常，但版本已实际更新成功，继续收尾。\n'
+    else
+      printf '龙虾升级暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
+      return 0
+    fi
   fi
-  printf '正在重启龙虾网关。\n'
+  printf '正在完成插件授权并重启龙虾网关。\n'
+  converge_openclaw_plugins
   runtime_command_long openclaw gateway restart >/dev/null 2>&1 || true
   updated_version="$(openclaw_cli_version || true)"
   if [[ "$updated_version" == "$latest_version" ]]; then
