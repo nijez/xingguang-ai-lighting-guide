@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.59"
+SCRIPT_VERSION="2026-06-25.60"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -48,7 +48,7 @@ LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.22}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.22}"
-XINGUANG_PANEL_VERSION="1.2.2"
+XINGUANG_PANEL_VERSION="1.2.3"
 XINGUANG_SHOW_VERSION="1.8.1"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
@@ -1490,6 +1490,7 @@ install_openclaw() {
         setup_runtime_paths
         state_mark OPENCLAW_UPGRADE_DONE
         ensure_openclaw_plugin_consent
+        run_openclaw_doctor_fix_after_upgrade
       elif [[ -n "$current_version" ]] && ! version_ge "$current_version" "$OPENCLAW_TARGET_VERSION"; then
         # .59: 低于软目标则尝试升级；失败不阻断（MIN 之上仍可正常安装使用）
         log "OpenClaw $current_version 低于目标版本 $OPENCLAW_TARGET_VERSION，正在升级（失败不影响安装）"
@@ -1500,6 +1501,7 @@ install_openclaw() {
         log "OpenClaw 升级后版本：$(openclaw --version 2>/dev/null || printf 未知)"
         # 2026.8.1 起插件需能力授权/DeepSeek 拆包，升级后立即收敛，避免网关拒绝就绪
         ensure_openclaw_plugin_consent
+        run_openclaw_doctor_fix_after_upgrade
       else
         state_mark OPENCLAW_VERSION_OK
         log "Skipping OpenClaw package update (OPENCLAW_UPDATE=$OPENCLAW_UPDATE and installed version satisfies $OPENCLAW_MIN_VERSION)"
@@ -2034,6 +2036,17 @@ repair_gateway_deactivating_if_needed() {
   fi
   systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
   systemctl --user start "$unit" >/dev/null 2>&1 || true
+}
+
+# .60: 2026.8.1 起代理数据库 schema 迁移需「停机维护」——升级后网关会拒绝就绪
+# （实测：Agent identity migration requires stopped-writer maintenance）。
+# 统一姿势：停网关 → doctor --fix 完成迁移 → 再启动。全新库上也无副作用。
+run_openclaw_doctor_fix_after_upgrade() {
+  have openclaw || return 0
+  log "正在执行 OpenClaw 升级后维护（doctor --fix 数据迁移）"
+  systemctl --user stop openclaw-gateway.service >/dev/null 2>&1 || true
+  timeout 300s openclaw doctor --fix >/dev/null 2>&1 || true
+  systemctl --user start openclaw-gateway.service >/dev/null 2>&1 || true
 }
 
 # .57: OpenClaw 2026.8.1 起第三方插件需能力授权、DeepSeek 供应商拆为按需安装，

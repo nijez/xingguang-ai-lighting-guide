@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.2"
+XINGUANG_PANEL_VERSION="1.2.3"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -953,8 +953,11 @@ update_openclaw_component() {
       return 0
     fi
   fi
-  printf '正在完成插件授权并重启龙虾网关。\n'
+  printf '正在完成插件授权与数据迁移，并重启龙虾网关。\n'
   converge_openclaw_plugins
+  # 1.2.3: 2026.8.1 起代理库迁移需停机维护，升级后先停网关跑 doctor --fix
+  runtime_command systemctl --user stop openclaw-gateway.service >/dev/null 2>&1 || true
+  runtime_command_long openclaw doctor --fix >/dev/null 2>&1 || true
   runtime_command_long openclaw gateway restart >/dev/null 2>&1 || true
   updated_version="$(openclaw_cli_version || true)"
   if [[ "$updated_version" == "$latest_version" ]]; then
