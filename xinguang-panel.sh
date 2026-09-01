@@ -2,13 +2,19 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.1.0"
+XINGUANG_PANEL_VERSION="1.2.0"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
 OPENCLAW_CONFIG_FILE="$HOME/.openclaw/openclaw.json"
 SKILL_FILE="$HOME/.openclaw/skills/wainfort-ai-lighting-run/SKILL.md"
 SCRIPT_RAW_URL="https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/install-miloco-openclaw-cloud.sh"
+# 1.2.0: 主脚本线上版本核对与 Skill 一样走三源，避免单源抖动误报「无法检查更新」
+SCRIPT_ONLINE_SOURCES=(
+  "https://nijez.github.io/xingguang-ai-lighting-guide/install-miloco-openclaw-cloud.sh"
+  "$SCRIPT_RAW_URL"
+  "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/install-miloco-openclaw-cloud.sh"
+)
 # 线上 SKILL.md 三源（与主安装器 download_versioned_file 同一套镜像姿势）
 SKILL_ONLINE_SOURCES=(
   "https://nijez.github.io/xingguang-ai-lighting-guide/skills/wainfort-ai-lighting-run/SKILL.md"
@@ -135,12 +141,16 @@ installed_script_version() {
 }
 
 online_script_version() {
-  local tmp version
+  local tmp version url
   tmp="$(panel_temp_file)"
   version=""
-  if curl -fsSL --max-time 5 "$SCRIPT_RAW_URL" -o "$tmp" 2>/dev/null; then
-    version="$(extract_script_version "$tmp" || true)"
-  fi
+  for url in "${SCRIPT_ONLINE_SOURCES[@]}"; do
+    if curl -fsSL --max-time 5 "$url" -o "$tmp" 2>/dev/null; then
+      version="$(extract_script_version "$tmp" || true)"
+      [[ -n "$version" ]] && break
+    fi
+    version=""
+  done
   rm -f "$tmp"
   [[ -n "$version" ]] || return 1
   printf '%s\n' "$version"
@@ -408,7 +418,7 @@ check_install_script() {
     HEALTH_INSTALL_SCRIPT_OK=0
     health_error "请执行“更新到最新版”。"
   elif [[ -z "$remote_version" ]]; then
-    printf '⚠️ 安装脚本      %s（无法检查更新）\n' "$local_version"
+    printf '✅ 安装脚本      %s（已安装；网络原因暂未核对新版）\n' "$local_version"
   elif [[ "$local_version" == "$remote_version" ]]; then
     printf '✅ 安装脚本      %s（最新）\n' "$local_version"
   else
@@ -429,7 +439,7 @@ check_skill() {
     HEALTH_SKILL_OK=0
     health_error "请在龙虾对话里安装馨光 Skill。"
   elif [[ -z "$remote_version" ]]; then
-    printf '⚠️ 馨光 Skill    %s（无法检查更新）\n' "$local_version"
+    printf '✅ 馨光 Skill    %s（已安装；网络原因暂未核对新版）\n' "$local_version"
   elif [[ "$local_version" == "$remote_version" ]]; then
     printf '✅ 馨光 Skill    %s（最新）\n' "$local_version"
   else
