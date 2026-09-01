@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.67"
+SCRIPT_VERSION="2026-06-25.68"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -1840,7 +1840,9 @@ run_miloco_phase() {
   if [[ "$PYPI_FALLBACK_OFFICIAL" == 1 && "$index_url" != "https://pypi.org/simple" ]]; then
     # .67: 服务本体已就绪说明失败点在插件授权步（2026.8.1 必现）——换源重试
     # 无济于事，且会因缓存被清触发 68MB 慢速重下。直接返回交给补装兜底。
-    if [[ "$phase" == "--agent-finish" ]] && miloco_base_ready; then
+    # .68: 判据只看服务本体存活（miloco_base_ready 含插件在位检查，
+    # 而此刻插件必然未装——那正是失败原因——导致跳过永不触发，实测多耗6分钟）
+    if [[ "$phase" == "--agent-finish" ]] && have miloco-cli && miloco_service_running; then
       log "灯光服务已就绪，失败点在插件授权步，跳过无效的备用源重试"
       return 1
     fi
