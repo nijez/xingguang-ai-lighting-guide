@@ -8,12 +8,14 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.58"
+SCRIPT_VERSION="2026-06-25.59"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
 OPENCLAW_BIND="${OPENCLAW_BIND:-loopback}"
 OPENCLAW_MIN_VERSION="${OPENCLAW_MIN_VERSION:-2026.6.10}"
+# .59: 软目标版本——新装统一尝试拉齐到此版本（失败不阻断，MIN 之上即可装）
+OPENCLAW_TARGET_VERSION="${OPENCLAW_TARGET_VERSION:-2026.8.1}"
 RUN_SYSTEM_UPGRADE="${RUN_SYSTEM_UPGRADE:-0}"
 OPENCLAW_UPDATE="${OPENCLAW_UPDATE:-auto}"
 INSTALL_EXTRA_PLUGINS="${INSTALL_EXTRA_PLUGINS:-0}"
@@ -1487,6 +1489,17 @@ install_openclaw() {
         run_openclaw_installer
         setup_runtime_paths
         state_mark OPENCLAW_UPGRADE_DONE
+        ensure_openclaw_plugin_consent
+      elif [[ -n "$current_version" ]] && ! version_ge "$current_version" "$OPENCLAW_TARGET_VERSION"; then
+        # .59: 低于软目标则尝试升级；失败不阻断（MIN 之上仍可正常安装使用）
+        log "OpenClaw $current_version 低于目标版本 $OPENCLAW_TARGET_VERSION，正在升级（失败不影响安装）"
+        state_mark OPENCLAW_UPGRADE_STARTED
+        run_openclaw_installer || log "警告：OpenClaw 升级未完成，按当前版本继续安装"
+        setup_runtime_paths
+        state_mark OPENCLAW_UPGRADE_DONE
+        log "OpenClaw 升级后版本：$(openclaw --version 2>/dev/null || printf 未知)"
+        # 2026.8.1 起插件需能力授权/DeepSeek 拆包，升级后立即收敛，避免网关拒绝就绪
+        ensure_openclaw_plugin_consent
       else
         state_mark OPENCLAW_VERSION_OK
         log "Skipping OpenClaw package update (OPENCLAW_UPDATE=$OPENCLAW_UPDATE and installed version satisfies $OPENCLAW_MIN_VERSION)"
