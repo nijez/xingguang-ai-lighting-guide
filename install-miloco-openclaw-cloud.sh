@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.64"
+SCRIPT_VERSION="2026-06-25.65"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2342,9 +2342,30 @@ ensure_npm11_for_plugin() {
   fi
 }
 
-# .62: 米洛科安装器会直连 GitHub 下载 miloco-linux 主包（约68MB），国内速度剧烈波动
-# （实测 20KB/s~10.8MB/s）。这里用测速多源（GitHub直连/gh-proxy/ghproxy）预下到它的
-# 缓存路径，它见文件即免下。任何一步失败都静默放弃，交回米洛科自行下载，无副作用。
+# .62/.65: 米洛科安装器直连 GitHub 下载 miloco-linux 主包（约68MB），国内速度剧烈波动
+# （实测 20KB/s~10.8MB/s）。用测速多源预下一份留底，再起守护进程持续补位——
+# 米洛科在 prepare 和 finish 阶段都会 rm -rf 自己的缓存目录（实测清两次），
+# 清一次补一次，它检查到文件已存在就跳过下载。失败静默放弃，交回它自行下载。
+MILOCO_PREFETCH_WATCHER_PID=""
+
+start_miloco_prefetch_watcher() {
+  local keep="$1" cache_dir="$2" pkg="$3"
+  [[ -s "$keep" ]] || return 0
+  (
+    for _ in $(seq 1 1200); do
+      [[ -d "$cache_dir" && ! -s "$cache_dir/$pkg" ]] && cp -f "$keep" "$cache_dir/$pkg" 2>/dev/null
+      sleep 2
+    done
+  ) >/dev/null 2>&1 &
+  MILOCO_PREFETCH_WATCHER_PID=$!
+}
+
+stop_miloco_prefetch_watcher() {
+  [[ -n "$MILOCO_PREFETCH_WATCHER_PID" ]] || return 0
+  kill "$MILOCO_PREFETCH_WATCHER_PID" >/dev/null 2>&1 || true
+  MILOCO_PREFETCH_WATCHER_PID=""
+}
+
 prefetch_miloco_linux_package() {
   local manifest="$WORK_DIR/manifest.json" version arch pkg cache_dir target
   [[ -f "$manifest" ]] || return 0
@@ -2355,7 +2376,13 @@ prefetch_miloco_linux_package() {
   pkg="miloco-linux-${arch}-${version}.tar.gz"
   cache_dir="$MILOCO_HOME/.install-cache/$version"
   target="$cache_dir/$pkg"
-  [[ -s "$target" ]] && return 0
+  local keep="$WORK_DIR/miloco-linux-keep.tar.gz"
+  # 已有留底（本轮早前下过）→ 直接开守护，不重复下载
+  if [[ -s "$keep" ]]; then
+    mkdir -p "$cache_dir" 2>/dev/null || true
+    start_miloco_prefetch_watcher "$keep" "$cache_dir" "$pkg"
+    return 0
+  fi
   mkdir -p "$cache_dir" 2>/dev/null || return 0
   local base="github.com/XiaoMi/xiaomi-miloco/releases/download/v${version}/${pkg}"
   local urls=(
@@ -2365,11 +2392,13 @@ prefetch_miloco_linux_package() {
   )
   mapfile -t urls < <(printf '%s\n' "${urls[@]}" | rank_urls_by_speed "Miloco主包" 1)
   log "正在预下载 Miloco 主包（多源测速，约68MB）"
-  if download_first "$target.prefetch" "${urls[@]}" && [[ "$(stat -c %s "$target.prefetch" 2>/dev/null || echo 0)" -gt 10000000 ]]; then
-    mv -f "$target.prefetch" "$target"
+  if download_first "$keep.part" "${urls[@]}" && [[ "$(stat -c %s "$keep.part" 2>/dev/null || echo 0)" -gt 10000000 ]]; then
+    mv -f "$keep.part" "$keep"
+    cp -f "$keep" "$target" 2>/dev/null || true
     log "Miloco 主包预下载完成，米洛科安装器将直接使用"
+    start_miloco_prefetch_watcher "$keep" "$cache_dir" "$pkg"
   else
-    rm -f "$target.prefetch"
+    rm -f "$keep.part"
     log "Miloco 主包预下载未成功，交由米洛科安装器自行下载"
   fi
 }
@@ -2397,13 +2426,15 @@ install_miloco() {
 
   ensure_npm11_for_plugin
 
+  # .65: 先下留底并起守护（prepare/finish 各清一次缓存，守护清一次补一次）
+  prefetch_miloco_linux_package
+
   # Redirect stdin so Miloco installer skips Mi Home and model prompts.
   state_mark LIGHT_SERVICE_INSTALL_STARTED
   state_mark MILOCO_INSTALL_STARTED
   run_miloco_phase "$installer" --agent-prepare
 
-  # .64: 预下载必须放在 --agent-prepare 之后——prepare 会 rm -rf .install-cache，
-  # 放在它之前预下的包会被清掉，米洛科在 finish 阶段照样自己慢速重下（实测）。
+  # prepare 结束后再补一次（守护若已就绪则直接复用留底，不重复下载）
   prefetch_miloco_linux_package
 
   # .61: OpenClaw 2026.8.1 下米洛科安装器内部的 plugins install 缺 --accept-capabilities
@@ -2422,6 +2453,7 @@ install_miloco() {
   local finish_rc=0
   run_miloco_phase "$installer" --agent-finish || finish_rc=$?
   kill "$MILOCO_TGZ_WATCHER_PID" >/dev/null 2>&1 || true
+  stop_miloco_prefetch_watcher
 
   if ! openclaw plugins list 2>/dev/null | grep -qi "miloco-openclaw"; then
     if [[ -s "$WORK_DIR/miloco-plugin-keep.tgz" ]]; then
