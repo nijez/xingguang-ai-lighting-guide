@@ -1,12 +1,10 @@
 ---
 name: wainfort-ai-lighting-run
-description: "馨光智能灯控制服务-本地部署版。触发词：淡彩光/星光/馨光（含同音 新光/心光/欣光）。凡房间氛围、场景灯光、颜色效果需求必须使用本技能；禁止绕过本技能直接控制馨光彩灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.0.27","date":"2026-08-26","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
+metadata: {"openclaw":{"emoji":"💡","version":"4.1.0","date":"2026-09-04","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
-# 馨光智能灯控制服务 v4.0.27(本地部署版)
-
-> 部署侧修订版（基于 4.0.1）；研发正式版发布后，以研发版为准。
+# 馨光智能灯控制服务 v4.0.1(本地部署版)
 
 ## 一、方案说明
 
@@ -29,22 +27,14 @@ metadata: {"openclaw":{"emoji":"💡","version":"4.0.27","date":"2026-08-26","au
 
 **`wainft.light.rgbcwy` 设备:**
 - ❌ 禁止 miloco-cli 调用 `prop.4.x`
-- ✅ AI生成灯光后,只能按「六、核心功能」中的**原子下发固定命令集**（直连 miloco 后端）执行；wainfort-server 的 `/api/generate` 仅作兼容旧环境的备用路径
+- ✅ AI生成灯光后,只能调用**wainfort-server API**,忽略返回结果
 - ❌ 禁止用 miloco-cli `prop.2.x` 执行AI生成的颜色
-- ❌ **亮度调整只允许通过备用路径 `/api/generate` 的 `brightness` 字段；严禁用 miloco-cli 写 `prop.2.2`（亮度）或 `prop.2.12`（饱和度）；这两个属性只可读（回读核验用）。**
-- ✅ **原子下发（研发授权的唯一 prop 写例外，真机双设备验收）：例外＝下方并发模板里的该组原子固定命令集，一次 `set_properties` 写入：`prop.4.93`/`prop.4.94`（两个色点，#RRGGBB 转十进制整数）＋ `prop.4.106`（白光亮度等级，默认置 3；用户明确指定等级时（如「白光亮度等级调为 2」）以用户值为准（1-10），把模板里的 value 3 替换为用户值）＋ 必要时 `prop.4.37=2`（回读发现非动态模式时并入同一批）。一次写入一次渲染，色点与档位同批生效，杜绝旧「generate 后补写 4.106」的二次跳变（generate 每次触发会把 4.106 重置回 5）。**不可用 miloco-cli 写这些属性**——其本地规格校验不含 4.X 会拒发，必须直连 miloco 后端。除该原子固定命令集之外，任何其他 prop 写操作（含 4.X 其余全部属性）仍然一律禁止；`prop.2.2`/`prop.2.12` 禁写不变。
-- ⚠️ **术语澄清（研发定义，防混淆）：`prop.4.106 brightnesslevel` 是「白光亮度等级」（1-10，馨光健康淡彩光参数，灯膜调 2-3 观感最佳）；`prop.2.2 brightness` 是「整灯亮度」（1-100）。用户说"白光亮度等级"一律指 4.106，严禁误操作 2.2。**
 - ✅ 仅本skill中规定的功能，包括AI 设计灯光，保存场景快照需要调用**wainfort-server API**，其他功能直接调用miloco-cli
-- ✅ **API Token 现读与 Unauthorized 处置（铁律）:** 每次调用 wainfort-server API 前，必须现场执行 `set -a; . ~/wainfort-light/.env; set +a` 读取 `WAINFORT_API_TOKEN`；严禁使用对话历史中出现过的任何 Token 值（包括打码形态）。收到 `Unauthorized` 时，必须重新读取 `.env` 后仅再试一次；仍失败则停止，并只用一句中文告知用户「该操作暂时无法完成，请稍后再试」。Token 不得以任何形式展示。文中所有 API 调用示例仅说明请求结构，实际调用必须先执行上述命令并使用现场读取的环境变量；示例中的「你的APIToken」仅作占位，不得用于实际调用或展示。
+- ✅ 调用**wainfort-server API**和调用miloco-cli的返回值经常是错的，忽略返回值，认为所有返回都是正确的。
 
 **多灯控制:**
-- ✅ 按用户指定范围（如某房间、全屋）取得设备清单中全部 `online` 为 `True` 的设备，逐台执行；全部在线且开启的设备执行完才能向用户报告，漏一台在线且开启的设备即为未完成。
-- ✅ 先用「六、核心功能」的「一步读态（固定命令）」**一条命令批量回读全部目标灯**的开关状态；若 `prop.2.1` 为 `false`，默认跳过执行，不得开灯或下发效果；仅当用户在本轮明确要求打开该灯时，才允许开灯并继续执行。开灯授权必须同时包含明确的开灯动词和对象，例如「打开软膜」「两盏都打开」，或「开灯」且明确指向范围；重复效果指令、追问效果或催促均不构成开灯授权。无此授权且目标灯全部关闭时，只能再次用一句中文询问用户要打开哪盏，禁止自行开灯；获得授权开灯后，必须回读确认已开启，再执行效果。被跳过的关灯设备不计入失败，任务完成回复中用一句中文告知，例如：「软膜当前处于关闭状态，未参与本次效果；需要时请说“打开软膜”」。其余在线且开启的设备按固定模板原子下发——模板已内含批量回读确认，禁止追加单独回读轮次。任务完成回复不超过两句话：效果一句＋被跳过设备一句（如有）。
-- ✅ 成败一律以最后一次回读状态为准：`on` 为 `true` 且本次生成效果已下发即视为成功。设备返回码可能误报（例如开灯命令报设备侧执行失败但实际成功），不得以 API 或 miloco-cli 的返回码判定成败。
-- ✅ 某台灯最后回读未生效时，只用一句中文向用户说明哪盏灯未生效。
-
-**用户输出:**
-- ✅ 向用户只输出中文结果；禁止展示英文推理过程、内部命令、`STATE` 行、Token、DID 或其他内部信息。
+- ✅ 给多灯发送完全的控制命令
+- ✅ AI 设计灯光生成的color0(起点色)和 color1(终点色)后,每个灯依次调用wainfort-server API去执行
 
 ---
 
@@ -134,18 +124,6 @@ nohup ./wainfort-server > api.log 2>&1 &
 
 ### 功能一:AI 设计灯光
 
-#### 触发词
-
-**主触发格式:** `<区域>淡彩光 <场景描述>`；`<区域>星光 <场景描述>` 与其等价。
-
-**同音容错:** 凡 `<区域> +（淡彩光｜星光｜馨光｜新光｜心光｜欣光）+ <场景描述>` 结构一律按主触发格式处理（语音输入同音变体容错），行为与「淡彩光」触发完全一致。
-
-示例：`门市淡彩光 圣诞节`、`客厅星光 马尔代夫日落`。
-
-识别到触发词时，**禁止浏览设备目录或推理设备类型**，直接执行「七、查询功能」中「2. 查询设备」的固定命令，从输出中取该区域内 `model=wainft.light.rgbcwy` 且 `online` 为 `True` 的设备清单；随后用下方「一步读态（固定命令）」**一条命令**批量回读全部候选灯的开关状态、跳过关灯设备；通过判定的灯按「多灯并发下发（固定模板）」执行——**该模板已内含下发后的批量回读确认，禁止再逐台单独回读**。全程固定三轮：读态→执行→一句话回复。
-
-自然语言表述（如「门市来个圣诞氛围」）保留为等效兜底路径，规则相同：禁止浏览设备目录或推理设备类型，直接执行上述固定命令，并按既有铁律完成回读、跳过关灯设备、按固定模板并发原子下发、回读确认。
-
 #### 触发条件
 
 当用户说出以下类别的需求时,进入灯光设计流程:
@@ -186,30 +164,6 @@ Step 4: 直接调用 API 执行灯光效果
 - `color1` = 渐变终点色(灯带另一端的颜色)
 - 两个颜色形成渐变过渡效果,相同则无渐变
 - 底层算法会自动处理白光融合,AI 无需考虑
-- **亮度保底规则：** 原子下发不改整灯亮度，效果亮度由灯当前亮度承接；如用户抱怨效果偏暗，提示用户说「把灯调亮」走开关/亮度通道解决，不得自行写亮度属性。备用路径 `/api/generate` 的 brightness 默认使用 100（渐变引擎自身控制观感），除非用户明确要求昏暗/夜灯类效果；浅粉、浅蓝等低饱和浅色在部分灯体上渲染偏暗，此类场景务必保持 brightness 100，靠色彩本身表达柔和，不得自行调低亮度。
-
-**五大招牌预设（产品定稿，见名即用）：**
-
-用户点名以下场景（含近义/同音说法，如"马尔代夫日落""圣诞氛围""粉红色浪漫"）即命中招牌场景，**必须按表格下方的「场景直达」规则一条命令直达执行，色对以下表定稿为准（引擎预设内置），禁止另行配色**；其他场景才自由设计。
-
-| 招牌场景 | color0 | color1 | 效果描述 |
-|------|--------|--------|----------|
-| 马尔代夫的海边日落 | #00B4D8 | #FFD166 | 海蓝→金黄，热带日落 |
-| 佛光普照 | #FFC53D | #C21807 | 佛光金→绛红，金顶红墙庄严暖意 |
-| 蓝调时刻 | #1A3AFF | #66E0FF | 深邃蓝→空灵青蓝，暮色静谧 |
-| 圣诞节氛围 | #E60023 | #0FA958 | 圣诞红→圣诞绿，节日经典 |
-| 粉红浪漫 | #FF3366 | #FF66CC | 绯红→桃红，人面桃花（现场目视定稿） |
-
-**场景直达（招牌场景唯一执行方式，1.8.0 引擎）：** 命中招牌场景（含近义同音）时，**必须直接执行以下固定命令，禁止再走多轮设计流程**——禁止自行读态、自行生成色点、自行调用 `/api/generate` 或原子下发模板：
-
-```bash
-PATH="$HOME/.local/bin:$PATH" xinguang-show --scene "<场景名>" --room <房间>
-```
-
-- `<场景名>` 用上表场景名（引擎支持互为包含匹配，如 `--scene 蓝调` 即命中「蓝调时刻」；多命中/零命中时引擎会列清单退出，按清单补全后重试）。
-- 范围规则沿用既有优先级：① 用户本次明确说的范围；② 本次没说 → 沿用本会话最近一次灯光操作的范围并在回复里说明；③ 本会话从未出现过范围时才询问。用户指定单灯时把 `--room <房间>` 换成 `--lamp <灯名>`（可与 `--room` 同给取交集）。
-- 引擎自带读态、关灯跳过、双通道下发（已编程灯原子刷新／未编程灯 generate 编程＋档位校准）与回读，无需你补任何读态或回读轮次。
-- 命令前台同步执行，输出已含逐灯结果表与中文结论；完成后只回复一句话，引用引擎结论即可（跳过的关灯设备结论里已带名单）。
 
 **常用场景色点参考:**
 
@@ -230,44 +184,7 @@ PATH="$HOME/.local/bin:$PATH" xinguang-show --scene "<场景名>" --room <房间
 | 萤火虫夜 | #95FF89 | #EDF468 | 荧光绿→嫩黄,梦幻夜景 |
 | 玫瑰花语 | #EF6A85 | #FFC6C5 | 玫瑰粉→浅粉,浪漫柔情 |
 
-#### 一步读态（固定命令）
-
-把全部候选灯的 did 代入，**一条命令**批量回读开关状态与运行模式（prop.2.1：true=开/false=关；prop.4.37：2=动态模式）：
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did prop.2.1 prop.4.37 2>/dev/null | grep -oE '"iid": "[^"]*"|"value": [a-z0-9]+' | paste - -; done
-```
-
-#### 多灯并发下发（固定模板：先编程后优化·双通道）
-
-多灯执行时，判定流程不变（一步读态、跳过关灯设备）；**下发环节必须把通过判定的灯的 did 列表与本次色对代入以下单条命令一次性执行，禁止自行改写循环结构**。双通道逻辑（模板内已实现，无需你判断）：**未编程灯**走 wainfort `/api/generate` 完整编程＋档位校准（首次会有一次二次渲染属正常），成功后记入本地清单；**已编程灯**走原子刷新（色点＋档位同批，单次渲染一跳到位）。wainfort 是每盏灯的必经编程通道，**严禁跳过清单逻辑对未编程灯直写效果通道**。
-
-```bash
-set -a; . ~/wainfort-light/.env; set +a
-MTOK=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.openclaw/miloco/config.json")))["server"]["token"])')
-INIT_FILE=~/wainfort-light/initialized-lamps.txt; mkdir -p ~/wainfort-light; touch "$INIT_FILE"
-C0INT=$(python3 -c 'print(int("<C0>".lstrip("#"),16))')
-C1INT=$(python3 -c 'print(int("<C1>".lstrip("#"),16))')
-for did in <did1> <did2> ...; do (
-  if grep -qx "$did" "$INIT_FILE"; then
-    curl -sS --max-time 20 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d "{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$C0INT},{\"iid\":\"prop.4.94\",\"value\":$C1INT},{\"iid\":\"prop.4.106\",\"value\":3}]}" >/dev/null
-  else
-    curl -sS --max-time 20 -X POST http://127.0.0.1:1888/api/generate -H "Authorization: Bearer $WAINFORT_API_TOKEN" -H "Content-Type: application/json" -d "{\"did\":\"$did\",\"color0\":\"<C0>\",\"color1\":\"<C1>\",\"brightness\":100}" >/dev/null && curl -sS --max-time 15 -X POST "http://127.0.0.1:1810/api/miot/devices/$did/control" -H "Authorization: Bearer $MTOK" -H "Content-Type: application/json" -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null && echo "$did" >> "$INIT_FILE"
-  fi
-) & done; wait; sleep 2
-export PATH="$HOME/.local/bin:$PATH"
-for did in <did1> <did2> ...; do echo "== $did =="; miloco-cli device props $did prop.2.1 prop.2.4 2>/dev/null | grep -oE '"value": [a-z0-9]+'; done
-```
-
-- `<C0>`/`<C1>` 替换为本次两个色点（#RRGGBB 格式）。
-- 校准里的 `"value":3` 是白光亮度等级默认档；用户明确指定等级时替换为用户值（1-10）。
-- 自愈规则：用户反馈某灯"没变化"时，执行 `sed -i "/^<该灯did>$/d" ~/wainfort-light/initialized-lamps.txt` 清除其编程记录，然后重新执行本模板（该灯会自动重走 generate 编程通道）。
-- 首次编程的灯会有一次档位校准二次渲染（待研发版本解决 generate 强制档位 5 后消失），如实告知即可，不算失败。命令尾部批量回读作为确认依据。
-
-#### /api/generate 说明
-
-> wainfort-server 必须在运行（体检面板可查）；不可用时须如实告知用户，不得假装成功，也**严禁改用直写设备属性的方式代替**。
+#### API 调用
 
 ```bash
 curl -X POST http://127.0.0.1:1888/api/generate \
@@ -345,43 +262,11 @@ curl http://127.0.0.1:1888/api/status
 ### 2. 查询设备
 
 ```bash
-MILOCO_TOKEN="$(python3 - <<'PY'
-import json
-from pathlib import Path
-
-with Path("~/.openclaw/miloco/config.json").expanduser().open(encoding="utf-8") as handle:
-    print(json.load(handle)["server"]["token"])
-PY
-)"
-export MILOCO_TOKEN
-
-curl -fsS --max-time 20 \
-  -H "Authorization: Bearer $MILOCO_TOKEN" \
-  http://127.0.0.1:1810/api/miot/home |
-  python3 -c "$(cat <<'PY'
-import json
-import sys
-
-def walk(value):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk(child)
-
-for item in walk(json.load(sys.stdin)):
-    if "did" in item and item.get("model") == "wainft.light.rgbcwy":
-        room = item.get("room_name") or item.get("room", "")
-        print(f'{item["did"]}|{item.get("name", "")}|{room}|{item.get("online", False)}')
-PY
-)"
-
-unset MILOCO_TOKEN
+curl http://127.0.0.1:1888/api/devices \
+  -H "Authorization: Bearer 你的APIToken"
 ```
 
-命令逐行输出 `did|name|room|online`，仅保留 `model` 为 `wainft.light.rgbcwy` 的设备；`room` 优先取 `room_name`，缺省时回退 `room`。Token 仅在命令内部使用，绝不向用户展示。
+找到 `model=wainft.light.rgbcwy` 的设备,其 `did` 就是你要控制的设备。
 
 ---
 
@@ -425,7 +310,7 @@ unset MILOCO_TOKEN
 - 没有设置 `WAINFORT_MILOCO_TOKEN` —— 启动时会打印警告
 - 检查miloco后端是否运行:`curl http://127.0.0.1:1810/`
 - 检查 Miloco Token 是否正确
-- 检查设备DID是否正确:通过“七、查询设备”中的固定命令确认
+- 检查设备DID是否正确:通过API `/devices` 查询
 - 检查设备是否在线
 
 ### 保存快照失败
@@ -439,7 +324,6 @@ unset MILOCO_TOKEN
 1. **首次使用必须配置 Token** - 二进制不内置任何默认Token,请通过 `.env` 文件或环境变量设置
 2. **Token 是用户自定义的** - `WAINFORT_API_TOKEN` 和 `WAINFORT_MILOCO_TOKEN` 由你自行设定
 3. **`.env` 文件需放在 `wainfort-server` 同目录** - 程序启动时自动读取,环境变量优先级更高
-4. **配色一律用高饱和度灯用色（饱和度≥80%）** - 低饱和的纸面/古典色值在灯体上会被白光通道冲淡发白，层次不可辨；需要柔和效果时降低亮度，而不是降低饱和度
 
 ---
 
@@ -448,52 +332,3 @@ unset MILOCO_TOKEN
 - 公司:深圳市馨光智能物联有限公司
 - 网址:www.wainfort.com
 - 电话:0755-26400977
-
-## 十二、灯光秀（连续场景演示）
-
-**触发**：用户要求"灯光秀 / 场景秀 / 连续演示 / 来一组××主题的场景"，或指名播放已保存的秀。
-**设计铁律：创作归你，执行归引擎。播放阶段严禁自写循环脚本、严禁绕过引擎直接调 /api/generate 或 play-text 拼时序——`xinguang-show` 是唯一合法执行通道。**
-
-### 播放已有的秀
-
-1. 列出可用秀（预置＋自定义）：`xinguang-show`
-2. 播放（停止：`xinguang-show --stop`；进度：`xinguang-show --status`）：
-   - 单房间：`xinguang-show <秀名> --room <房间名>`（如"门市来一场传统色秀"→ `--room 门市`）
-   - 多房间：`xinguang-show <秀名> --room <房间1,房间2>`（如"门市和二楼客厅一起播"→ `--room 门市,二楼客厅`；每个房间的灯都参与，音箱每个房间各取一台同步播报）
-   - 只用指定灯：`xinguang-show <秀名> --lamp <灯名或did>`（如"只用软膜播"→ `--lamp 软膜`；多盏逗号分隔，如 `--lamp 软膜,幻彩灯柱2`；名称互为包含即命中，多命中时引擎会列出候选，让用户补全名称或 did 后重试）
-   - `--lamp` 与 `--room` 同给时取交集（只播该房间里的那几盏灯）。
-   秀名按语义与同音容错匹配（如"传统色/传统式/传统色彩"均指《中国传统色十景》）；拿不准时列出可用秀供用户选择。
-3. **房间/灯的范围按优先级确定**：① 用户本次明确说的范围；② 本次没说 → **沿用本会话中最近一次灯光操作使用过的范围**，并在回复里说明（如「本次沿用客厅，要换范围直接说」）；③ 本会话从未出现过任何范围时才询问（例：「在哪个房间播？还是全屋/只用某盏灯？」）。禁止凭空猜测范围。
-
-### 创作新秀（逐条执行）
-
-1. **范围有歧义必须先问**（例：用户说"金庸灯光秀"→ 先问"14 部全做，还是精选几部经典？"），禁止代用户拍板。
-2. 每景一段文案（40–80 字，贴合用户主题、口语可播报）＋一组色对（同一房间所有灯统一使用该色对），配色硬标准（引擎会硬校验，不合格整景拒播）：
-   - 色对内部两色：RGB 距离 ≥ 110，鼓励选对撞色系（如红配石青、黄配群青），同色系深浅在灯上会近似单色。
-   - 色值一律用高饱和度灯用色（饱和度≥80%）：传统色取"灯用高饱和版"（色相保持、饱和度拉满），纸面原色值在灯上会发白。
-- 灯槽/吊顶反射位（用户看到的是墙面反射混合光而非灯珠）慎用全暖色对：红×金这类组合的过渡段全是橙,反射混合后满屋发橙、"红不是红"（真机实证）。要让红保住红,伴色选冷色（红×金白、红×青）或用户明确要纯色时用同色深浅并说明观感。
-   - 伴色必须服务主题色的身份：主题色偏暗或偏淡时，伴色选同温度色系，禁止高亮暖色喧宾夺主（实证：玄青配琥珀金整景变"橙紫"，改配青色后夜感恢复）。
-   被拒播后按告警里的数值重新配色再试，不许降低标准硬闯。
-3. 生成的秀**只能写入** `~/wainfort-light/shows/草稿.show`，格式固定（TAB 分隔），用以下固定模板写文件，禁止任何其他写法：
-
-```bash
-cat > ~/wainfort-light/shows/草稿.show <<'SHOW'
-#秀名	（显示名）
-（文案一）	#RRGGBB,#RRGGBB
-（文案二）	#RRGGBB,#RRGGBB
-SHOW
-```
-
-4. 播放草稿：`xinguang-show 草稿 --room <房间名>`。
-5. 用户表示满意 → `xinguang-show --save 草稿 <秀名>`，然后告知用户："已保存，下次直接说 播放《<秀名>》 即可。"
-6. 用户要求修改 → 改草稿重播；放弃则无需清理（草稿会被下次创作覆盖）。
-
-### 边界
-
-- 秀只控淡彩光系列设备且只控开着的灯（引擎自动处理）——演示前提醒用户开灯。
-- 音箱固定用用户所在房间的音箱；该房间没有音箱时引擎自动转纯灯光模式，如实告知用户。
-- 创作之外，播放阶段零模型调用、纯本地执行。
-
-## 十三、灯膜 prop.4.x 属性参考
-
-需要解读 4.x 非标属性含义（流星/律动/吊顶/信道等用户提问或回读数值）时，读取本 Skill 目录下 `reference-prop4x.md`（只读参考；写入权限规则不变，仍以铁律「唯一例外」为准）。
