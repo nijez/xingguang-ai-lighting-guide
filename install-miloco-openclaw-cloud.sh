@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.72"
+SCRIPT_VERSION="2026-06-25.73"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2093,6 +2093,14 @@ restart_openclaw_gateway_best_effort() {
   fi
 
   ensure_openclaw_plugin_consent
+
+  # .73: OpenClaw 2026.9.1 起配置校验收紧，插件安装/授权会向 openclaw.json 写入新键，
+  # 升级后早先那次 doctor --fix 覆盖不到；最终重启前若校验不过，再做一次停机修复。
+  # 实测：不修则网关 exit 78，腾讯云 Agent 对话页报"实例环境检测异常"。
+  if ! openclaw config validate >/dev/null 2>&1; then
+    log "OpenClaw 配置校验未通过，正在执行停机修复（doctor --fix）"
+    run_openclaw_doctor_fix_after_upgrade
+  fi
 
   state_mark GATEWAY_RESTART_SCHEDULED
   if [[ "$RUN_CONTEXT" == agentchat_supervisor ]]; then
