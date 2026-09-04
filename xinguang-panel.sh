@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.3"
+XINGUANG_PANEL_VERSION="1.2.4"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -918,54 +918,12 @@ converge_openclaw_plugins() {
 
 # 10. 更新龙虾（OpenClaw）：当前版本对比 npm 双源 latest，有新版才升级并重启网关
 update_openclaw_component() {
-  local current_version latest_version updated_version
+  # 1.2.4: 龙虾版本由腾讯云轻量控制台的「一键更新」维护（控制台预检/对话页/插件
+  # 均按其目标版本适配；实测装到更高版本会导致"实例环境检测异常"）。本面板不再升级龙虾。
   printf '\n更新龙虾（OpenClaw）\n'
-  current_version="$(openclaw_cli_version || true)"
-  if [[ -z "$current_version" ]]; then
-    printf '本机未找到龙虾（openclaw 命令不可用），请先执行「5. 完整更新」。\n'
-    return 0
-  fi
-  printf '当前版本：%s，正在检查线上版本。\n' "$current_version"
-  latest_version="$(online_openclaw_version || true)"
-  if [[ -z "$latest_version" ]]; then
-    printf '无法检查线上版本，请稍后再试。\n'
-    return 0
-  fi
-  if [[ "$current_version" == "$latest_version" ]]; then
-    printf '龙虾已是最新（%s），无需更新。\n' "$current_version"
-    return 0
-  fi
-  printf '发现新版本：本机 %s → 线上 %s\n' "$current_version" "$latest_version"
-  printf '接下来将下载官方升级安装器完成升级，并重启龙虾网关；预计 3 到 10 分钟，期间龙虾对话会短暂中断。\n'
-  require_write_mode || return 0
-  if ! confirm_component_action; then
-    printf '已返回，本次未升级。\n'
-    return 0
-  fi
-  printf '正在升级龙虾。\n'
-  if ! run_openclaw_upgrade; then
-    # 1.2.1: 旧版升级器对新包有校验误报（包实际已更新），以版本号为准判断
-    updated_version="$(openclaw_cli_version || true)"
-    if [[ "$updated_version" == "$latest_version" ]]; then
-      printf '升级器提示了校验异常，但版本已实际更新成功，继续收尾。\n'
-    else
-      printf '龙虾升级暂时未完成，请稍后再试，或执行「5. 完整更新」。\n'
-      return 0
-    fi
-  fi
-  printf '正在完成插件授权与数据迁移，并重启龙虾网关。\n'
-  converge_openclaw_plugins
-  # 1.2.3: 2026.8.1 起代理库迁移需停机维护，升级后先停网关跑 doctor --fix
-  runtime_command systemctl --user stop openclaw-gateway.service >/dev/null 2>&1 || true
-  runtime_command_long openclaw doctor --fix >/dev/null 2>&1 || true
-  runtime_command_long openclaw gateway restart >/dev/null 2>&1 || true
-  updated_version="$(openclaw_cli_version || true)"
-  if [[ "$updated_version" == "$latest_version" ]]; then
-    printf '龙虾已更新到 %s。\n' "$updated_version"
-    printf '请在龙虾对话发送 /new 使新版生效\n'
-  else
-    printf '龙虾升级暂时未确认完成（当前 %s），请稍后再试，或执行「5. 完整更新」。\n' "${updated_version:-未知}"
-  fi
+  printf '当前版本：%s\n' "$(openclaw_cli_version 2>/dev/null || printf 未知)"
+  printf '龙虾版本请在腾讯云轻量控制台 → 应用管理 → 「一键更新」中升级；本面板不做升级，以免与控制台不兼容。\n'
+  return 0
 }
 
 # 本机 Miloco 版本：优先 miloco-cli --version，回退 uv tool list（uv tools 安装形态）
