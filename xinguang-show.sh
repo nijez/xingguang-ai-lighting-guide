@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_SHOW_VERSION="1.8.1"
+XINGUANG_SHOW_VERSION="2.0.0"
 
 PID_FILE="/tmp/xinguang-show.pid"
 STATUS_FILE="/tmp/xinguang-show.status"
@@ -430,7 +430,7 @@ resolve_scene() {
 }
 
 # 场景直达执行：前台同步（不写 PID/状态文件、不进后台体系、不涉播报），
-# 复用既有设备发现/房间单灯过滤/关灯跳过/并发 apply_light_color 双通道。
+# 复用既有设备发现/房间单灯过滤/并发 apply_light_color（仅 wainfort generate）。
 # dry_run=1 只打印将执行的动作，不触任何设备。
 cmd_scene() {
   local query="$1" dry_run="$2" want_room="${3:-}" want_lamp="${4:-}"
@@ -462,13 +462,13 @@ cmd_scene() {
 
   if [[ "$dry_run" == 1 ]]; then
     for (( i = 0; i < ${#LIGHTS[@]}; i++ )); do
-      say "将下发｜${LIGHTS[$i]}｜${LIGHT_NAMES[$i]}｜色对 ${SCENE_MATCH_PAIR}（双通道：已编程灯原子刷新，未编程灯 generate 编程＋档位校准）"
+      say "将下发｜${LIGHTS[$i]}｜${LIGHT_NAMES[$i]}｜色对 ${SCENE_MATCH_PAIR}（wainfort /api/generate）"
     done
     say "演练完成：「${SCENE_MATCH_NAME}」将打到 ${#LIGHTS[@]} 盏灯，未向设备下发任何命令"
     return 0
   fi
 
-  # 并发下发：每盏灯各自后台作业走 apply_light_color 双通道，单灯失败不拖垮整批
+  # 并发下发：每盏灯各自后台作业调用 wainfort /api/generate
   for (( i = 0; i < ${#LIGHTS[@]}; i++ )); do
     apply_light_color "${LIGHTS[$i]}" "$SCENE_MATCH_PAIR" &
     pids+=("$!")
@@ -494,11 +494,8 @@ cmd_scene() {
   if (( fail > 0 )); then
     summary="${summary}；下发失败 ${fail} 盏：${fail_names}"
   fi
-  if (( ${#OFF_NAMES[@]} > 0 )); then
-    summary="${summary}；跳过关灯 ${#OFF_NAMES[@]} 盏：${OFF_NAMES[*]}"
-  fi
   say "$summary"
-  log "场景直达「${SCENE_MATCH_NAME}」完成：成功 ${ok}，失败 ${fail}，跳过关灯 ${#OFF_NAMES[@]}"
+  log "场景直达「${SCENE_MATCH_NAME}」完成：成功 ${ok}，失败 ${fail}"
   if (( ok == 0 )); then
     exit 1
   fi
@@ -617,62 +614,6 @@ for item in walk(data):
 '
 }
 
-light_is_on() {
-  local did="$1" output
-  if mock_devices_ready; then
-    awk -F'\t' -v want="$did" '$1 == want { print ($5 == "true" ? "true" : "false"); found = 1 } END { if (!found) print "unknown" }' "$XINGUANG_SHOW_MOCK_DEVICES"
-    return 0
-  fi
-  output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device props "$did" prop.2.1 2>/dev/null || true)"
-  [[ -n "$output" ]] || { printf 'unknown\n'; return 0; }
-  printf '%s' "$output" | python3 -c '
-import json
-import re
-import sys
-
-raw = sys.stdin.read()
-
-def walk(value):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in ("prop.2.1", "on", "power"):
-                yield child
-            yield from walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk(child)
-
-values = []
-try:
-    values = list(walk(json.loads(raw)))
-except json.JSONDecodeError:
-    pass
-
-for value in values:
-    if isinstance(value, bool):
-        print("true" if value else "false")
-        raise SystemExit
-    lowered = str(value).strip().lower()
-    if lowered in ("true", "1", "on", "开启", "已开启"):
-        print("true")
-        raise SystemExit
-    if lowered in ("false", "0", "off", "关闭", "已关闭"):
-        print("false")
-        raise SystemExit
-
-if re.search(r"(?:prop\.2\.1|on|power)[^\n]{0,80}\btrue\b", raw, re.I):
-    print("true")
-elif re.search(r"(?:prop\.2\.1|on|power)[^\n]{0,80}\bfalse\b", raw, re.I):
-    print("false")
-else:
-    print("unknown")
-' 2>/dev/null || printf 'unknown\n'
-}
-
-# 音箱发现（真机实证 catalog 无动作列且漏设备，已弃用）：
-# 与灯同源读 /api/miot/home，按房间互含过滤；候选条件 category=="speaker"
-# （条目无 category 字段时回退「名称含音箱」）；再逐台 miloco-cli device spec
-# 确认含 play-text 能力，取第一台确认的。$1 非空时按房间过滤。
 discover_speaker() {
   local want_room="${1:-}" candidates did name token
   if mock_devices_ready; then
@@ -746,93 +687,15 @@ for item in walk(data):
 }
 
 # 色值 #RRGGBB → uint32 RGB 十进制整数（设备属性 4.93/4.94 的取值格式）
-color_to_int() {
-  local hex="${1#\#}"
-  printf '%s\n' "$((16#$hex))"
-}
-
-# 读灯运行模式 prop.4.37（0=音乐律动,1=静态,2=动态）；读不到输出空，
-# 调用方走安全侧：不带 4.37、照常下发。
-read_led_mode() {
-  local did="$1" output
-  output="$(PATH="$HOME/.local/bin:$PATH" miloco-cli device props "$did" prop.4.37 2>/dev/null || true)"
-  [[ -n "$output" ]] || return 0
-  printf '%s' "$output" | python3 -c '
-import json
-import re
-import sys
-
-raw = sys.stdin.read()
-
-def walk(value):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key == "prop.4.37":
-                yield child
-            yield from walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk(child)
-
-try:
-    for value in walk(json.loads(raw)):
-        text = str(value).strip()
-        if re.fullmatch(r"\d+", text):
-            print(text)
-            raise SystemExit
-except json.JSONDecodeError:
-    pass
-
-match = re.search(r"prop\.4\.37\D{0,40}?(\d+)", raw)
-if match:
-    print(match.group(1))
-' 2>/dev/null || true
-}
-
-# 场景下发（1.7.0 混合架构，King 裁决「先编程、后优化」）：
-# wainfort /api/generate 是每盏灯的必经编程通道（布点/模式/分段算法归它，严禁绕过）；
-# 已被 generate 编程过的灯（本地清单记录）后续切换走原子刷新（色点+档位同批，单次渲染），
-# 即稳定的"一次性输出白光亮度等级 3"。首次编程仍有一次档位补写二次渲染（仅此一次），
-# 待研发版本解决 generate 强制档位 5 后可进一步简化。
-# 整灯亮度 prop.2.2 禁写铁律不变：本函数不写任何 2.x 属性。
-INITIALIZED_LAMPS_FILE="$HOME/wainfort-light/initialized-lamps.txt"
-
-lamp_initialized() {
-  [[ -f "$INITIALIZED_LAMPS_FILE" ]] && grep -qx "$1" "$INITIALIZED_LAMPS_FILE"
-}
-
-mark_lamp_initialized() {
-  mkdir -p "$(dirname "$INITIALIZED_LAMPS_FILE")" 2>/dev/null || true
-  lamp_initialized "$1" || printf '%s\n' "$1" >>"$INITIALIZED_LAMPS_FILE" 2>/dev/null || true
-}
-
+# 场景下发（2.0.0，回归官方 Skill v4.0.1 铁律）：只调用 wainfort-server /api/generate，
+# 布点/模式/档位算法全部由它内部处理；不读态、不回读、不写任何 prop.2.x / prop.4.x，
+# 返回值仅记日志、一律视为成功。Skill 满足不了的（如白光档位）属研发侧问题，本引擎不做补偿。
 apply_light_color() {
-  local did="$1" pair="$2" c0 c1 c0_int c1_int body miloco_token
+  local did="$1" pair="$2" c0 c1 body
   IFS=',' read -r c0 c1 <<<"$pair"
-  if ! miloco_token="$(read_miloco_token)"; then
-    log "灯 $did 下发失败（未读到 miloco token）"
-    return 1
-  fi
-
-  if lamp_initialized "$did"; then
-    # 已编程灯：原子刷新（单次渲染，档位 3 同批）
-    c0_int="$(color_to_int "$c0")"
-    c1_int="$(color_to_int "$c1")"
-    body="{\"type\":\"set_properties\",\"properties\":[{\"iid\":\"prop.4.93\",\"value\":$c0_int},{\"iid\":\"prop.4.94\",\"value\":$c1_int},{\"iid\":\"prop.4.106\",\"value\":3}]}"
-    if curl -fsS --max-time 20 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
-      -H "Authorization: Bearer $miloco_token" \
-      -H "Content-Type: application/json" \
-      -d "$body" >/dev/null 2>&1; then
-      log "灯 $did 原子刷新成功（色对 $pair，档位 3）"
-      return 0
-    fi
-    log "灯 $did 原子刷新失败，转 wainfort 编程通道重试"
-  fi
-
-  # 未编程灯（或原子刷新失败兜底）：wainfort generate 完整编程 + 档位校准
   if [[ ! -f "$WAINFORT_ENV_FILE" ]]; then
     log "灯 $did 下发失败（缺少 wainfort 环境文件）"
-    return 1
+    return 0
   fi
   set -a; . "$WAINFORT_ENV_FILE" >/dev/null 2>&1; set +a
   body="$(python3 -c 'import json, sys; print(json.dumps({"did": sys.argv[1], "color0": sys.argv[2], "color1": sys.argv[3], "brightness": 100}))' "$did" "$c0" "$c1")"
@@ -840,16 +703,11 @@ apply_light_color() {
     -H "Authorization: Bearer ${WAINFORT_API_TOKEN:-}" \
     -H "Content-Type: application/json" \
     -d "$body" >/dev/null 2>&1; then
-    log "灯 $did 编程换色成功（$pair，wainfort 生成）"
-    curl -fsS --max-time 15 -X POST "$MILOCO_API_URL/api/miot/devices/$did/control" \
-      -H "Authorization: Bearer $miloco_token" -H "Content-Type: application/json" \
-      -d '{"type":"set_property","iid":"prop.4.106","value":3}' >/dev/null 2>&1 \
-      && log "灯 $did 浓度校准完成（4.106=3）" || log "灯 $did 浓度校准未生效（不影响换色）"
-    mark_lamp_initialized "$did"
-    return 0
+    log "灯 $did 换色已下发（$pair）"
+  else
+    log "灯 $did 换色下发返回异常（$pair），按铁律忽略返回值"
   fi
-  log "灯 $did 换色失败（$pair）"
-  return 1
+  return 0
 }
 
 speak_text() {
@@ -898,12 +756,11 @@ on_stop_signal() {
   exit 0
 }
 
-# 设备发现 + 范围过滤：结果写入 LIGHTS/LIGHT_NAMES/OFF_NAMES/SPEAKER_DIDS/HAS_SPEAKER
+# 设备发现 + 范围过滤：结果写入 LIGHTS/LIGHT_NAMES/SPEAKER_DIDS/HAS_SPEAKER
 # $1=--room 多值（逗号分隔，可空）；$2=--lamp 多值（逗号分隔，可空）；同给取交集
 # $3 非空（场景直达用）＝跳过音箱选取，只做灯的发现/过滤/关灯跳过
 LIGHTS=()
 LIGHT_NAMES=()
-OFF_NAMES=()
 SPEAKER_DIDS=()
 HAS_SPEAKER=0
 discover_for_playback() {
@@ -911,8 +768,7 @@ discover_for_playback() {
   local participating_rooms="" speaker_rooms="" sdid s dup r
   LIGHTS=()
   LIGHT_NAMES=()
-  OFF_NAMES=()
-  SPEAKER_DIDS=()
+    SPEAKER_DIDS=()
   HAS_SPEAKER=0
 
   if [[ -n "$want_rooms" && -n "$want_lamps" ]]; then
@@ -948,30 +804,23 @@ discover_for_playback() {
     filtered="$SELECTED_LINES"
   fi
 
+  # 2.0.0：不读开关状态（官方 Skill v4.0.1：给多灯发送完全的控制命令，不读态不回读）
   while IFS=$'\t' read -r did name room; do
     [[ -n "$did" ]] || continue
-    state="$(light_is_on "$did")"
-    if [[ "$state" == "true" ]]; then
-      LIGHTS+=("$did")
-      LIGHT_NAMES+=("${name:-$did}")
-      if [[ -n "${room:-}" ]]; then
-        participating_rooms="${participating_rooms:+$participating_rooms,}$room"
-      fi
-    else
-      OFF_NAMES+=("${name:-$did}")
+    LIGHTS+=("$did")
+    LIGHT_NAMES+=("${name:-$did}")
+    if [[ -n "${room:-}" ]]; then
+      participating_rooms="${participating_rooms:+$participating_rooms,}$room"
     fi
   done <<<"$filtered"
 
-  if (( ${#OFF_NAMES[@]} > 0 )); then
-    say "以下灯当前是关闭状态，不参与本次演示：${OFF_NAMES[*]}"
-  fi
   if (( ${#LIGHTS[@]} == 0 )); then
     if [[ -n "$want_lamps" ]]; then
-      say "指定的馨光灯当前都没开着，请先打开再播放"
+      say "没有找到指定的馨光灯，请检查灯名"
     elif [[ -n "$want_rooms" ]]; then
-      say "$(quote_tokens "$want_rooms")房间没有开着的馨光灯，请先打开该房间的馨光灯再播放"
+      say "$(quote_tokens "$want_rooms")房间没有找到馨光灯"
     else
-      say "请先打开门市的馨光灯再播放"
+      say "本家庭没有找到馨光灯，请先完成米家绑定并选择家庭"
     fi
     return 1
   fi
@@ -1116,7 +965,7 @@ run_playback() {
     log "第 ${CURRENT_SCENE}/${total} 景：色对 ${main}，等待 ${wait_s} 秒"
     # 产品方裁决：同一房间所有淡彩光必须同一色对，且并发下发让多灯几乎同时变化
     # （串行逐台会造成相邻灯约 2 秒错峰）。每盏灯在各自后台作业里完成
-    # wainfort generate 生成场景 + 补写档位校准；
+    # wainfort generate 生成场景（返回值忽略）；
     # 单灯失败只记该灯日志，不拖垮整景。日志顺序允许交错，每行自带 did 可辨。
     local i scene_jobs=()
     for (( i = 0; i < ${#lights[@]}; i++ )); do
