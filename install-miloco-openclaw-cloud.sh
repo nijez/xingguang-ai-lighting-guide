@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.78"
+SCRIPT_VERSION="2026-06-25.79"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -408,7 +408,7 @@ download_url_with_progress() {
   start_epoch="$(date +%s)"
   last_report=-12
 
-  curl -fL --progress-bar --connect-timeout 15 --retry 2 --retry-delay 2 \
+  curl --speed-limit 51200 --speed-time 30 -fL --progress-bar --connect-timeout 15 --retry 2 --retry-delay 2 \
     --max-time "$DOWNLOAD_TIMEOUT" -o "$target" "$url" 2>"$progress_file" &
   curl_pid=$!
 
@@ -1155,7 +1155,8 @@ download_first() {
   for url in "$@"; do
     [[ -n "$url" ]] || continue
     log "Downloading: $url"
-    if curl -fL --connect-timeout 15 --retry 2 --retry-delay 2 \
+    # .79: 低于 50KB/s 持续 30 秒即放弃本源、换下一源（King 原则：慢就切，不干等）
+    if curl -fL --speed-limit 51200 --speed-time 30 --connect-timeout 15 --retry 2 --retry-delay 2 \
       --max-time "$DOWNLOAD_TIMEOUT" -o "$tmp" "$url"; then
       mv "$tmp" "$dest"
       return 0
