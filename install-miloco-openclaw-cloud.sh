@@ -8,9 +8,9 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.71"
+SCRIPT_VERSION="2026-06-25.72"
 TOTAL_STEPS=6
-MILOCO_VERSION="${MILOCO_VERSION:-2026.6.18}"
+MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
 OPENCLAW_BIND="${OPENCLAW_BIND:-loopback}"
 OPENCLAW_MIN_VERSION="${OPENCLAW_MIN_VERSION:-2026.6.10}"
@@ -49,7 +49,6 @@ STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.23}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.23}"
 XINGUANG_PANEL_VERSION="1.2.3"
-XINGUANG_SHOW_VERSION="2.0.0"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 absolute_path() {
@@ -3553,41 +3552,6 @@ prepare_xinguang_panel() {
   chmod +x "$panel" "$path_panel"
 }
 
-prepare_xinguang_show() {
-  local install_dir bin_dir show path_show show_dir show_data show_header scene_data scene_header
-  install_dir="$XINGUANG_LOCAL_INSTALL_DIR"
-  bin_dir="$HOME/.local/bin"
-  show="$install_dir/xinguang-show"
-  path_show="$bin_dir/xinguang-show"
-  show_dir="$install_dir/shows"
-  show_data="$show_dir/chuantongse.show"
-  scene_data="$show_dir/presets.scene"
-
-  mkdir -p "$install_dir" "$bin_dir" "$show_dir"
-
-  download_versioned_file_or_keep "馨光灯光秀引擎" "$show" "XINGUANG_SHOW_VERSION=\"$XINGUANG_SHOW_VERSION\"" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/xinguang-show.sh" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/xinguang-show.sh" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/xinguang-show.sh" ||
-    die
-
-  cp "$show" "$path_show" || die
-  chmod +x "$show" "$path_show"
-
-  show_header="$(printf '#秀名\t中国传统色十景')"
-  download_versioned_file_or_keep "灯光秀数据（中国传统色十景）" "$show_data" "$show_header" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/shows/chuantongse.show" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/chuantongse.show" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/chuantongse.show" ||
-    die
-
-  scene_header="$(printf '蓝调时刻\t#1A3AFF,#66E0FF')"
-  download_versioned_file_or_keep "招牌场景预设数据（presets.scene）" "$scene_data" "$scene_header" \
-    "https://nijez.github.io/xingguang-ai-lighting-guide/shows/presets.scene" \
-    "https://raw.githubusercontent.com/nijez/xingguang-ai-lighting-guide/main/shows/presets.scene" \
-    "https://cdn.jsdelivr.net/gh/nijez/xingguang-ai-lighting-guide@main/shows/presets.scene" ||
-    die
-}
 
 run_full_deploy() {
   local step_start
@@ -3663,7 +3627,6 @@ run_full_deploy() {
   fi
 
   prepare_xinguang_panel
-  prepare_xinguang_show
   prepare_xinguang_set_chat_model_helper
   configure_deepseek_chat_model_if_requested
 
