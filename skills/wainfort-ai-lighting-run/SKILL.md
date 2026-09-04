@@ -1,7 +1,7 @@
 ---
 name: wainfort-ai-lighting-run
 description: "馨光智能灯控制服务 - 本地部署版,控制你自己米家账号下的馨光灯。AI设计灯光效果+场景快照保存。"
-metadata: {"openclaw":{"emoji":"💡","version":"4.1.0","date":"2026-09-04","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
+metadata: {"openclaw":{"emoji":"💡","version":"4.0.1","date":"2026-06-29","author":"小馨","company":"深圳市馨光智能物联有限公司"}}
 ---
 
 # 馨光智能灯控制服务 v4.0.1(本地部署版)

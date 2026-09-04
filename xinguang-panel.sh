@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.6"
+XINGUANG_PANEL_VERSION="1.2.7"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -445,8 +445,9 @@ check_skill() {
     health_error "请在龙虾对话里安装馨光 Skill。"
   elif [[ -z "$remote_version" ]]; then
     printf '✅ 馨光 Skill    %s（已安装；网络原因暂未核对新版）\n' "$local_version"
-  elif version_remote_newer "$local_version" "$remote_version"; then
-    printf '❌ 馨光 Skill    %s（可更新到 %s）\n' "$local_version" "$remote_version"
+  elif [[ "$local_version" != "$remote_version" ]]; then
+    # 1.2.7: Skill 以官方发布版为准（版本号不一定单调，如 4.0.27→4.0.1 回归官方），不同即提示更新
+    printf '❌ 馨光 Skill    %s（请更新到官方版 %s）\n' "$local_version" "$remote_version"
     HEALTH_SKILL_OK=0
     health_error "请在龙虾对话里重新安装馨光 Skill。"
   else
