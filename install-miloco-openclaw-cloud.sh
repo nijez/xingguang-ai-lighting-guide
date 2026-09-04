@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.76"
+SCRIPT_VERSION="2026-06-25.77"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -46,7 +46,7 @@ LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.23}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.23}"
-XINGUANG_PANEL_VERSION="1.2.5"
+XINGUANG_PANEL_VERSION="1.2.6"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 absolute_path() {
@@ -3435,6 +3435,9 @@ for node_bin in "$HOME"/.nvm/versions/node/*/bin; do
   export PATH="$node_bin:$PATH"
 done
 
+# .77: 关闭 Miloco 注册在龙虾里的后台模型定时任务（感知摘要/家庭巡检等，每小时 6 次纯后台
+# 模型调用，实测每会话 7~9 万 tokens）。旧版龙虾（如 2026.6.10）要求本机命令行先获批
+# 写权限，否则 disable 静默失败——现在失败即自动批准待审请求并重试，结果写入状态文件供体检核对。
 bash -lc '
   set -Eeuo pipefail
   export PATH="$HOME/.local/share/pnpm:$HOME/.npm-global/bin:$PATH"
@@ -3442,12 +3445,27 @@ bash -lc '
     [[ -d "$node_bin" ]] || continue
     export PATH="$node_bin:$PATH"
   done
-
-  command -v openclaw >/dev/null 2>&1 || exit 0
-  while IFS= read -r cron_id; do
-    [[ -n "$cron_id" ]] || continue
-    openclaw cron disable "$cron_id" >/dev/null 2>&1 || true
-  done < <(openclaw cron list 2>/dev/null | grep "miloco-" | awk "{print \$1}" || true)
+  STATUS="$HOME/.openclaw/xinguang-cron-guard.status"
+  command -v openclaw >/dev/null 2>&1 || { printf "time=%s found=0 disabled=0 failed=0 err=openclaw-missing\n" "$(date +%FT%T)" > "$STATUS" 2>/dev/null; exit 0; }
+  approve_pending() {
+    local req
+    req=$(openclaw devices list 2>/dev/null | sed -n "/Pending/,/Paired/p" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1 || true)
+    [[ -n "$req" ]] && openclaw devices approve "$req" >/dev/null 2>&1 || true
+  }
+  found=0; disabled=0; failed=0; err=""
+  for attempt in 1 2 3; do
+    ids=$(openclaw cron list 2>/dev/null | grep "miloco-" | awk "{print \$1}" || true)
+    found=$(printf "%s\n" "$ids" | grep -c . || true)
+    [[ -n "$ids" ]] || break
+    failed=0; err=""
+    while IFS= read -r cron_id; do
+      [[ -n "$cron_id" ]] || continue
+      if out=$(openclaw cron disable "$cron_id" 2>&1); then disabled=$((disabled+1)); else failed=$((failed+1)); err="$out"; fi
+    done <<<"$ids"
+    if (( failed > 0 )) && grep -qiE "pending approval|pairing required" <<<"$err"; then approve_pending; continue; fi
+    break
+  done
+  printf "time=%s found=%s disabled=%s failed=%s err=%s\n" "$(date +%FT%T)" "$found" "$disabled" "$failed" "$(printf "%s" "$err" | head -1 | cut -c1-120)" > "$STATUS" 2>/dev/null || true
 '
 EOF
   chmod +x "$guard_script"

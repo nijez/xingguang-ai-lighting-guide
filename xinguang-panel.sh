@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.5"
+XINGUANG_PANEL_VERSION="1.2.6"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -533,29 +533,33 @@ PY
 }
 
 check_saving_mode() {
-  local cron_list timer_enabled timer_active cron_checked
-  cron_list=""
-  timer_enabled=0
-  timer_active=0
-  cron_checked=0
-
-  # 先完成 timer 与 cron 两项同步读取，再统一渲染，避免出现瞬时中间态。
-  cron_guard_timer_enabled && timer_enabled=1
-  cron_guard_timer_active && timer_active=1
-  if cron_list="$(runtime_command openclaw cron list 2>/dev/null)"; then
-    cron_checked=1
-  fi
-
-  if (( timer_enabled && timer_active && cron_checked )) && ! grep -q 'miloco-' <<<"$cron_list"; then
-    printf '✅ 后台省钱      看门狗值守中，模型任务已关\n'
-  elif (( timer_enabled && timer_active && cron_checked )); then
-    printf '⚠️ 后台省钱      后台模型任务仍在运行，视觉感知可能产生费用\n'
-  elif (( timer_enabled && timer_active )); then
+  # 1.2.6: 实查龙虾里 Miloco 定时任务的 enabled 状态 + 看门狗上次执行结果，不再凭定时器存在与否判绿。
+  local timer_ok=0 cron_out running total parsed=0 guard_status="$HOME/.openclaw/xinguang-cron-guard.status" guard_failed=""
+  cron_guard_timer_enabled && cron_guard_timer_active && timer_ok=1
+  cron_out="$(runtime_command openclaw cron list --json 2>&1 || true)"
+  if read -r running total < <(printf '%s' "$cron_out" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin); jobs=d if isinstance(d,list) else (d.get("jobs") or d.get("data") or [])
+    m=[j for j in jobs if str(j.get("name","")).startswith("miloco-")]
+    print(sum(1 for j in m if j.get("enabled")), len(m))
+except Exception:
+    raise SystemExit(1)
+' 2>/dev/null); then parsed=1; fi
+  [[ -f "$guard_status" ]] && guard_failed="$(grep -oE 'failed=[0-9]+' "$guard_status" | cut -d= -f2)"
+  if (( parsed )) && [[ "${running:-0}" == 0 ]] && (( timer_ok )); then
+    printf '✅ 后台省钱      看门狗值守中，模型任务已关（Miloco 定时任务 %s 个，运行中 0）\n' "${total:-0}"
+  elif (( parsed )) && [[ "${running:-0}" != 0 ]]; then
+    printf '⚠️ 后台省钱      仍有 %s 个 Miloco 后台模型任务在运行（每小时约 6 次模型调用，产生费用）\n' "$running"
+  elif grep -qiE 'pending approval|pairing required' <<<"$cron_out"; then
+    printf '⚠️ 后台省钱      本机命令行权限待批准，看门狗无法关闭后台任务（请执行「完整更新」）\n'
+  elif (( timer_ok )); then
     printf '⚠️ 后台省钱      后台任务状态未确认，请稍后重新体检\n'
-  elif (( timer_enabled )); then
-    printf '⚠️ 后台省钱      定时器未正常运行，请稍后重新体检\n'
   else
-    printf '⚠️ 后台省钱      视觉感知已开启，后台模型任务可能产生费用\n'
+    printf '⚠️ 后台省钱      看门狗定时器未运行，后台模型任务可能产生费用\n'
+  fi
+  if [[ -n "$guard_failed" && "$guard_failed" != 0 ]]; then
+    printf '⚠️ 看门狗        上次执行有 %s 个任务未能关闭：%s\n' "$guard_failed" "$(grep -oE 'err=.*' "$guard_status" | cut -c5-90)"
   fi
 }
 
