@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.75"
+SCRIPT_VERSION="2026-06-25.76"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -2068,6 +2068,9 @@ run_openclaw_doctor_fix_after_upgrade() {
 # 否则网关拒绝就绪（实测崩溃循环）。旧版 openclaw 无这些参数时静默跳过，无副作用。
 ensure_openclaw_plugin_consent() {
   have openclaw || return 0
+  # .76: 仅 2026.8.1 及以上才有能力授权/DeepSeek 拆包；腾讯镜像 7.1 路径保持零动作
+  local cur; cur="$(openclaw_version_number || true)"
+  [[ -n "$cur" ]] && ! version_ge "$cur" "2026.8.1" && return 0
   openclaw plugins enable miloco-openclaw-plugin --accept-capabilities >/dev/null 2>&1 || true
   if grep -q '"deepseek"' "$HOME/.openclaw/openclaw.json" 2>/dev/null &&
     ! openclaw plugins list 2>/dev/null | grep -qi deepseek; then
