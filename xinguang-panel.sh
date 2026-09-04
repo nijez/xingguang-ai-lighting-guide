@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.4"
+XINGUANG_PANEL_VERSION="1.2.5"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -458,7 +458,7 @@ check_gateway() {
   HEALTH_GATEWAY_OK=1
   if command -v systemctl >/dev/null 2>&1 &&
     systemctl --user is-active --quiet openclaw-gateway.service >/dev/null 2>&1; then
-    printf '✅ 龙虾网关      运行中\n'
+    printf '✅ 龙虾网关      运行中（%s；请勿自行升级龙虾，升级只用腾讯云控制台「一键更新」）\n' "$(openclaw_cli_version 2>/dev/null || printf 版本未知)"
   else
     printf '❌ 龙虾网关      未运行\n'
     HEALTH_GATEWAY_OK=0

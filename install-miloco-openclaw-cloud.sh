@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.74"
+SCRIPT_VERSION="2026-06-25.75"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -46,7 +46,7 @@ LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
 XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.23}"
 XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.23}"
-XINGUANG_PANEL_VERSION="1.2.4"
+XINGUANG_PANEL_VERSION="1.2.5"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
 absolute_path() {
@@ -583,7 +583,7 @@ terminal_progress_message_for_marker() {
 
   case "$phase" in
     complete)
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n\n提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，自行升级可能导致控制台环境检测异常、绑定失败；如需升级只用腾讯云控制台的「一键更新」。\n'
       ;;
     error)
       printf '安装未完成，请联系工作人员处理。\n'
@@ -658,7 +658,7 @@ EOF
       printf '龙虾后台服务正在恢复，请稍候...\n'
       ;;
     STEP_6_DONE|SUCCESS_ACTIVE|SUCCESS_AFTER_RECONNECT)
-      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请发送「绑定米家账号」。\n'
+      printf '[100%%] 基础环境安装完成。\n\n下一步：\n请发送「绑定米家账号」。\n\n提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，自行升级可能导致控制台环境检测异常、绑定失败；如需升级只用腾讯云控制台的「一键更新」。\n'
       ;;
     OPENCLAW_GATEWAY_RECOVERY_FAILED|WAINFORT_SERVER_DATA_DIR_UNSUPPORTED|WAINFORT_SERVER_START_FAILED|ERROR:*|EXITED_BUT_INCOMPLETE)
       printf '安装未完成，请联系工作人员处理。\n'
@@ -698,6 +698,8 @@ status_complete_message() {
 
 下一步：
 请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。
+
+提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，自行升级可能导致控制台环境检测异常、绑定失败；如需升级只用腾讯云控制台的「一键更新」。
 EOF
 }
 
@@ -732,6 +734,8 @@ terminal_status_report() {
 
 下一步：
 请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。
+
+提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，自行升级可能导致控制台环境检测异常、绑定失败；如需升级只用腾讯云控制台的「一键更新」。
 EOF
       ;;
     error)
@@ -775,7 +779,7 @@ terminal_emit_complete() {
     TERMINAL_CURRENT_LABEL="基础环境安装完成"
     TERMINAL_CURRENT_PERCENT=100
     TERMINAL_MAX_ORDER=1000
-    printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n' >&3
+    printf '[100%%] 基础环境安装完成。\n\n下一步：\n请回到腾讯云控制台的 Agent 对话页面（Agent 控制台），发送「绑定米家账号」。\n\n提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，自行升级可能导致控制台环境检测异常、绑定失败；如需升级只用腾讯云控制台的「一键更新」。\n' >&3
   fi
 }
 
