@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.23"
+XINGUANG_SKILL_INSTALLER_VERSION="2026-06-26.24"
 XINGUANG_SKILL_VERSION=""
 SKILL_INSTALL_OUTPUT=""
 SKILL_NAME="wainfort-ai-lighting-run"
@@ -1646,6 +1646,8 @@ EOF
   download_server
   start_server
   install_skill
+  # .24: Skill 安装会重启网关，Miloco 插件随之重注册后台任务——立刻跑一次看门狗
+  [[ -x "$HOME/.local/bin/xinguang-cron-guard" ]] && "$HOME/.local/bin/xinguang-cron-guard" >/dev/null 2>&1 || true
   query_devices
 
   state_mark XINGUANG_SKILL_INSTALL_DONE

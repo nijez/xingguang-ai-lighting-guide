@@ -8,7 +8,7 @@ set -Eeuo pipefail
 # - WeChat channel installation/login is skipped.
 # - MiMo API key is synchronized from explicit input or OpenClaw configuration.
 
-SCRIPT_VERSION="2026-06-25.79"
+SCRIPT_VERSION="2026-06-25.80"
 TOTAL_STEPS=6
 MILOCO_VERSION="${MILOCO_VERSION:-latest}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
@@ -44,8 +44,8 @@ DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-}"
 XINGUANG_KEEP_MILOCO_CRON="${XINGUANG_KEEP_MILOCO_CRON-}"
 LOG_FILE="${LOG_FILE:-$HOME/miloco-cloud-install.log}"
 STATE_FILE="${STATE_FILE:-/tmp/xinguang-light-install.state}"
-XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.23}"
-XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.23}"
+XINGUANG_SKILL_ENTRY_VERSION="${XINGUANG_SKILL_ENTRY_VERSION:-2026-06-26.24}"
+XINGUANG_SKILL_INSTALLER_VERSION="${XINGUANG_SKILL_INSTALLER_VERSION:-2026-06-26.24}"
 XINGUANG_PANEL_VERSION="1.2.7"
 XINGUANG_LOCAL_INSTALL_DIR="${XINGUANG_LOCAL_INSTALL_DIR:-$HOME/xinguang-ai-light}"
 
@@ -2114,6 +2114,8 @@ restart_openclaw_gateway_best_effort() {
     ensure_openclaw_gateway_service_running || true
   }
   state_mark GATEWAY_RESTART_DONE
+  # .80: 网关一重启 Miloco 插件就会重新注册后台模型任务，立刻跑一次看门狗，不等 10 分钟定时器
+  [[ -x "$HOME/.local/bin/xinguang-cron-guard" ]] && "$HOME/.local/bin/xinguang-cron-guard" >/dev/null 2>&1 || true
   report_openclaw_versions || true
 }
 
