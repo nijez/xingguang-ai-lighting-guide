@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.7"
+XINGUANG_PANEL_VERSION="1.2.8"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -496,7 +496,9 @@ check_mihome_binding() {
   rows_file="$(panel_temp_file)"
   active_home=""
   bound=0
+  local fetched=0
   if fetch_homes_json "$homes_file"; then
+    fetched=1
     home_rows "$homes_file" >"$rows_file" 2>/dev/null || true
     [[ -s "$rows_file" ]] && bound=1
     active_home="$(current_home_name "$homes_file" || true)"
@@ -506,6 +508,11 @@ check_mihome_binding() {
     printf '✅ 米家账号      已绑定（%s）\n' "$active_home"
   elif (( bound )); then
     printf '✅ 米家账号      已绑定（当前家庭未确认）\n'
+  elif (( fetched == 0 )); then
+    # 1.2.8: 后端没应答 ≠ 未绑定（实测：Miloco 后端重启期间体检误报"未绑定"）
+    printf '⚠️ 米家账号      状态未读取到（Miloco 后端未响应，请稍后重新体检）\n'
+    HEALTH_MIHOME_OK=0
+    health_error "Miloco 后端未响应，请稍后重新体检；持续如此请执行「完整更新」。"
   else
     printf '❌ 米家账号      未绑定\n'
     HEALTH_MIHOME_OK=0
