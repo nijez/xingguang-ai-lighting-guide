@@ -57,7 +57,6 @@ bash install-xinguang-ai-light.sh status
 ```text
 客厅来个马尔代夫的海边日落。
 二楼客厅来一个森林晨光。
-全屋灯带做一个朋友聚会氛围。
 ```
 
 灯光请求发出后，龙虾会提示你观察现场。
