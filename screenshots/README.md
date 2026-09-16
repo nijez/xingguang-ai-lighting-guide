@@ -1,6 +1,6 @@
 # 教程截图清单（2026-09-16 按新版控制台更新）
 
-截图文件放在本目录。所有服务器 IP、实例 ID、服务器名、账号昵称、授权码、API Key 均已打码。标注「待补拍」的截图仍是旧版 AgentChat 界面，内容流程不变，下次在新版 Agent 控制台里完成对应步骤时按文件名替换即可。
+截图文件放在本目录。所有服务器 IP、实例 ID、服务器名、账号昵称、授权码、API Key 均已打码。「安装馨光 Skill」和「测试灯光效果」两步暂无新版界面截图，教程以文字说明；在新版 Agent 控制台完成这两步后按下列文件名补拍：`09-skill-install.png`（发送安装馨光 Skill 与安装完成提示）、`11-light-command.png`（灯光测试语句与观察提示）。
 
 | 文件名 | 状态 | 截图内容 | 拍摄要点 |
 |---|---|---|---|
@@ -16,10 +16,7 @@
 | `07-bind-code.png` | 沿用 | 米家网页授权完成后的授权码页面 | 已打码授权码，高亮「复制授权信息」。 |
 | `07-bind-success-home.png` | 新版 | 「米家账号绑定成功」+ 多家庭列表 | 已打码授权码。 |
 | `08-home-select.png` | 新版 | 回复家庭序号后「已切换到【家庭】，下一步请发送安装馨光 Skill」 | 画面里 Miloco 自带的家庭档案提问属正常，教程已说明。 |
-| `09-skill-install.png` | 待补拍 | 发送「安装馨光 Skill」 | 旧版 AgentChat 界面。 |
-| `10-skill-done.png` | 待补拍 | 馨光 Skill 已安装提示 | 旧版 AgentChat 界面。 |
-| `11-light-command.png` | 待补拍 | 灯光测试语句与观察提示 | 旧版 AgentChat 界面。 |
 
-已删除（新版控制台不再存在的界面）：`02-server-login.png`（免密码登录按钮）、`03-deepseek-model.png` / `03-mimo-key.png`（应用管理页内的模型设置）、`03a-agentchat-default-assistant.png` / `03b-agentchat-ready.png`（AgentChat 角色选择）、`07a-bind-success.png`。
+已删除（新版控制台不再存在的界面）：`02-server-login.png`（免密码登录按钮）、`03-deepseek-model.png` / `03-mimo-key.png`（应用管理页内的模型设置）、`03a-agentchat-default-assistant.png` / `03b-agentchat-ready.png`（AgentChat 角色选择）、`07a-bind-success.png`、`09-skill-install.png` / `10-skill-done.png` / `11-light-command.png`（旧版 AgentChat 界面）。
 
 拍摄前请确认所有服务器 IP、实例 ID、授权码、API Key、账号信息都已打码。

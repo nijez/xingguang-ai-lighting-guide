@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 set +x
 
-XINGUANG_PANEL_VERSION="1.2.8"
+XINGUANG_PANEL_VERSION="1.2.9"
 XINGUANG_INSTALL_DIR="$HOME/xinguang-ai-light"
 WAINFORT_ENV_FILE="$HOME/wainfort-light/.env"
 MILOCO_CONFIG_FILE="$HOME/.openclaw/miloco/config.json"
@@ -459,7 +459,7 @@ check_gateway() {
   HEALTH_GATEWAY_OK=1
   if command -v systemctl >/dev/null 2>&1 &&
     systemctl --user is-active --quiet openclaw-gateway.service >/dev/null 2>&1; then
-    printf '✅ 龙虾网关      运行中（%s；请勿自行升级龙虾，升级只用腾讯云控制台「一键更新」）\n' "$(openclaw_cli_version 2>/dev/null || printf 版本未知)"
+    printf '✅ 龙虾网关      运行中（%s；请勿自行升级龙虾，升级只用 Agent 控制台「实例运维 → 更新镜像」）\n' "$(openclaw_cli_version 2>/dev/null || printf 版本未知)"
   else
     printf '❌ 龙虾网关      未运行\n'
     HEALTH_GATEWAY_OK=0
@@ -930,11 +930,12 @@ converge_openclaw_plugins() {
 
 # 10. 更新龙虾（OpenClaw）：当前版本对比 npm 双源 latest，有新版才升级并重启网关
 update_openclaw_component() {
-  # 1.2.4: 龙虾版本由腾讯云轻量控制台的「一键更新」维护（控制台预检/对话页/插件
+  # 1.2.9: 措辞对齐 2026-09 新版控制台（实例运维 → 更新镜像）。
+  # 1.2.4: 龙虾版本由腾讯云控制台维护（控制台预检/对话页/插件
   # 均按其目标版本适配；实测装到更高版本会导致"实例环境检测异常"）。本面板不再升级龙虾。
   printf '\n更新龙虾（OpenClaw）\n'
   printf '当前版本：%s\n' "$(openclaw_cli_version 2>/dev/null || printf 未知)"
-  printf '龙虾版本请在腾讯云轻量控制台 → 应用管理 → 「一键更新」中升级；本面板不做升级，以免与控制台不兼容。\n'
+  printf '龙虾版本请在腾讯云 Lighthouse Agent 控制台 → 设置 → 实例运维 → 「更新镜像」中升级；本面板不做升级，以免与控制台不兼容。\n'
   return 0
 }
 
