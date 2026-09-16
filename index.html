@@ -480,6 +480,7 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
         <h2>常见问题</h2>
         <div class="grid">
           <div class="card"><h3>点「登录」后提示“登录失败 / 凭据错误”？</h3><p>多见于服务器回滚过快照。在 OrcaTerm 左侧「连接管理器」里右键这台服务器 →「编辑」→ 连接协议改为「免密连接（TAT）」→「连接并保存」。</p></div>
+          <div class="card"><h3>点「登录」提示“无法免密登录 / 自动化助手状态检测失败”？</h3><p>服务器刚开机或刚回滚快照后 3 分钟内常见，是腾讯云侧状态还没同步。等 30 到 60 秒，刷新页面再点「登录」即可，不要改用密码登录。</p></div>
           <div class="card"><h3>终端安装卡住怎么办？</h3><p>「正在安装灯光服务」安静几分钟属正常。如果超过 15 分钟没有新提示，运行终端状态查询命令；不要重复运行安装命令。</p></div>
           <div class="card"><h3>找不到以前的“模型设置 / 通道 / AgentChat”？</h3><p>腾讯云已把这些功能迁移到「Lighthouse Agent 控制台」。服务器详情页「应用管理」→「立即前往」即可进入，对话页就是原来的 AgentChat。</p></div>
           <div class="card"><h3>Agent 控制台显示“未运行 / 正在检测实例连接状态”？</h3><p>安装或重启后头一分钟常见。等待约 1 分钟后刷新页面，左上角变为「运行中」即可。</p></div>
