@@ -299,7 +299,7 @@
         <a href="#goal">项目目标</a>
         <a href="#flow">安装流程</a>
         <a href="#server">准备龙虾服务器</a>
-        <a href="#deepseek">配置 DeepSeek 与微信</a>
+        <a href="#deepseek">配置 DeepSeek 模型</a>
         <a href="#install">免密终端安装</a>
         <a href="#mijia">绑定米家账号</a>
         <a href="#home">选择家庭</a>
@@ -318,11 +318,11 @@
       <section class="hero" id="goal">
         <h1>馨光 AI 设计灯光安装指导</h1>
         <p class="lead">安装交给腾讯云终端，对话交给龙虾，灯光设计交给馨光 Skill。</p>
-        <div class="version">安装时请使用本页提供的命令。</div>
-        <div class="notice success">推荐方式：在腾讯云服务器页面点击「免密码登录」，进入终端后粘贴安装命令。</div>
+        <div class="version">安装时请使用本页提供的命令。教程对应腾讯云 2026 年 9 月新版控制台（Lighthouse Agent 控制台 + OrcaTerm 免密终端）。</div>
+        <div class="notice success">推荐方式：在腾讯云服务器页面右上角点击「登录」，在弹出的 OrcaTerm 登录框里保持默认的「免密连接（TAT）」，进入终端后粘贴安装命令。</div>
         <div class="notice">
           <h3>项目目标</h3>
-          <p>终端安装基础环境，并预置馨光 Skill 本地安装器。完成米家绑定和家庭选择后，发送「安装馨光 Skill」；安装成功后，你可以对龙虾说灯光需求，例如：“客厅来个马尔代夫的海边日落。”</p>
+          <p>终端安装基础环境，并预置馨光 Skill 本地安装器。完成米家绑定和家庭选择后，在 Agent 控制台对话页发送「安装馨光 Skill」；安装成功后，你可以对龙虾说灯光需求，例如：“客厅来个马尔代夫的海边日落。”</p>
           <p>灯光请求发出后，龙虾会让你现场确认灯光是否变化。</p>
         </div>
       </section>
@@ -330,97 +330,108 @@
       <section id="flow">
         <h2>安装流程</h2>
         <div class="steps">
-          <div class="step"><div class="num">1</div><div><h3>准备龙虾服务器</h3><p>创建腾讯云轻量服务器，选择龙虾应用模板。</p></div></div>
-          <div class="step"><div class="num">2</div><div><h3>绑定 DeepSeek 模型，并绑定微信通道</h3><p>在 Agent 控制台的模型设置里添加 DeepSeek，并完成微信授权接入。</p></div></div>
-          <div class="step"><div class="num">3</div><div><h3>腾讯云免密终端安装</h3><p>点击「免密码登录」，在终端粘贴本页安装命令。</p></div></div>
-          <div class="step"><div class="num">4</div><div><h3>回到龙虾绑定米家账号</h3><p>直接对龙虾说：<strong>绑定米家账号</strong>。龙虾给出授权链接后，点击完成授权，把授权码粘贴回来。</p></div></div>
-          <div class="step"><div class="num">5</div><div><h3>选择米家家庭</h3><p>如果账号下有多个家庭，请选择馨光设备所在的家庭。</p></div></div>
-          <div class="step"><div class="num">6</div><div><h3>安装馨光 Skill</h3><p>家庭选择完成后，直接对龙虾说：<strong>安装馨光 Skill</strong>。</p></div></div>
+          <div class="step"><div class="num">1</div><div><h3>准备龙虾服务器</h3><p>创建腾讯云轻量服务器，选择龙虾（OpenClaw）应用模板。</p></div></div>
+          <div class="step"><div class="num">2</div><div><h3>配置 DeepSeek 模型</h3><p>进入「Lighthouse Agent 控制台」→「设置」→「Agent 管理」，在模型区域切换到深度求索（DeepSeek）并填入 API Key。需要用微信聊天控制灯光的，在同一页的「通道」区域授权接入微信。</p></div></div>
+          <div class="step"><div class="num">3</div><div><h3>腾讯云免密终端安装</h3><p>服务器页面点「登录」→ 登录框保持「免密连接（TAT）」→ 点「登录」→ 在终端粘贴本页安装命令。</p></div></div>
+          <div class="step"><div class="num">4</div><div><h3>在 Agent 控制台绑定米家账号</h3><p>打开「Lighthouse Agent 控制台」的「对话」页，发送：<strong>绑定米家账号</strong>。龙虾给出授权链接后，点击完成授权，把授权码粘贴回来。</p></div></div>
+          <div class="step"><div class="num">5</div><div><h3>选择米家家庭</h3><p>如果账号下有多个家庭，回复馨光设备所在家庭的序号。</p></div></div>
+          <div class="step"><div class="num">6</div><div><h3>安装馨光 Skill</h3><p>看到「已切换到【家庭】，下一步请发送安装馨光 Skill」后，发送：<strong>安装馨光 Skill</strong>。</p></div></div>
           <div class="step"><div class="num">7</div><div><h3>测试灯光效果</h3><p>馨光 Skill 安装成功后，再说灯光需求，并按现场情况回复“已变化”或“未变化”。</p></div></div>
         </div>
       </section>
 
       <section id="server">
         <h2>准备龙虾服务器</h2>
-        <p>购买腾讯云轻量应用服务器时，选择龙虾（OpenClaw）应用模板。服务器创建完成后，先绑定 DeepSeek 模型，并绑定微信通道，再进入免密终端安装。</p>
+        <p>购买腾讯云轻量应用服务器时，选择龙虾（OpenClaw）应用模板。服务器创建完成后，先配置 DeepSeek 模型，再进入免密终端安装。</p>
         <img class="screenshot" src="screenshots/01-server-create.png" alt="腾讯云购买页选择龙虾应用模板">
         <div class="grid">
           <a class="card" href="https://cloud.tencent.com/act/pro/openclaw" target="_blank" rel="noreferrer"><h3>购买腾讯云龙虾服务器</h3><p>打开腾讯云活动页。</p></a>
           <a class="card" href="https://cloud.tencent.com/document/product/1207/127874" target="_blank" rel="noreferrer"><h3>查看腾讯云 OpenClaw 实践教程</h3><p>查看腾讯云官方实践教程。</p></a>
         </div>
+        <div class="notice">新版控制台里，服务器详情页的「应用管理」只剩两个入口：「Lighthouse Agent 控制台」（模型、通道、技能、对话都在这里）和「安全访问 WebUI」。本教程只用前者。</div>
+        <img class="screenshot" src="screenshots/02-app-manage.png" alt="服务器详情页的应用管理：Lighthouse Agent 控制台入口，右上角是登录按钮">
       </section>
 
       <section id="deepseek">
-        <h2>绑定 DeepSeek 模型，并绑定微信通道</h2>
-        <p>进入服务器「应用管理」页的模型设置，选择「深度求索（DeepSeek）」与模型（<strong>建议选择「模型 API」方式</strong>，按量付费、费用极低），填入 API Key 后点击「添加为默认」；在「通道」区域选择「微信」，点击「授权接入」完成绑定。后续用户通过微信和龙虾对话实现灯光控制。</p>
-        <div class="notice">DeepSeek API Key 只需要在模型设置里填写一次，切勿粘贴到龙虾对话里。</div>
+        <h2>配置 DeepSeek 模型（可选：接入微信）</h2>
+        <p>在服务器详情页「应用管理」点「立即前往」，或左侧菜单点「Agent 控制台」，打开 Lighthouse Agent 控制台。点左上角「设置」→「Agent 管理」→「模型-通道-技能」：</p>
+        <ol>
+          <li>在「模型 (Models)」区域找到「切换模型」，选择「深度求索（DeepSeek）」，填入 API Key。</li>
+          <li>模型选「DeepSeek V4.1 Flash」（按量付费、费用极低），点「切换为默认」。</li>
+          <li>需要在微信里和龙虾对话的，在「通道 (Channels)」区域选择「微信」，点「授权接入」，按提示扫码完成。不接微信也可以，直接用「对话」页控制灯光。</li>
+        </ol>
+        <div class="notice">DeepSeek API Key 只需要在这里填写一次，切勿粘贴到龙虾对话里。</div>
         <div class="grid">
           <a class="card" href="https://platform.deepseek.com" target="_blank" rel="noreferrer"><h3>DeepSeek 开放平台 / 获取 API Key</h3><p>注册后在控制台创建 API Key。</p></a>
         </div>
-        <img class="screenshot" src="screenshots/03-deepseek-model.png" alt="在应用管理页选择 DeepSeek 模型 API 并绑定微信通道">
-        <div class="notice">重点确认：通道区域选择「微信」并完成授权接入。后续用户通过微信和龙虾对话控制灯光；页面里的 AgentChat 用于网页端测试。</div>
-        <div class="notice">需要进入网页端测试时，在「通道」区域点击「使用 AgentChat 即刻开始对话」。进入 AgentChat 后，默认选择「通用助手」，点击「下一步」，再点击「开启对话」。</div>
-        <img class="screenshot" src="screenshots/03a-agentchat-default-assistant.png" alt="AgentChat 默认选择通用助手">
-        <img class="screenshot" src="screenshots/03b-agentchat-ready.png" alt="通用助手就绪后点击开启对话">
+        <img class="screenshot" src="screenshots/03-agent-settings.png" alt="Lighthouse Agent 控制台的设置页：模型、通道、技能三栏，DeepSeek 已应用中">
+        <div class="notice">配置好后回到「对话」页，输入框右下角显示「DeepSeek …」即表示模型已生效。</div>
       </section>
 
       <section id="install">
         <h2>推荐方式：腾讯云免密终端安装</h2>
-        <p>在腾讯云服务器页面点击「免密码登录」，进入终端后粘贴下面这条命令。安装完成后，回到龙虾对话窗口继续绑定米家账号。</p>
+        <p>回到服务器详情页，点右上角蓝色「登录」按钮。浏览器会打开 OrcaTerm 终端，并弹出「登录」对话框：</p>
+        <ol>
+          <li>「连接协议」保持默认的「免密连接（TAT）」，用户名保持 ubuntu。</li>
+          <li>点蓝色「登录」按钮，等待几秒出现 <code>ubuntu@VM-xxx:~$</code> 提示符。</li>
+          <li>把下面这条命令粘贴进终端，回车。</li>
+        </ol>
+        <img class="screenshot" src="screenshots/02b-orcaterm-login.png" alt="OrcaTerm 登录对话框，连接协议选免密连接（TAT）">
         <pre class="command"><code>curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh && bash install-xinguang-ai-light.sh</code></pre>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="terminalInstallCommand">复制终端安装命令</button>
         </div>
-        <p>如果终端窗口中断，可以在同一个终端运行状态查询命令。不要重复运行安装命令。</p>
+        <p>安装全程约 7 到 10 分钟，中间「正在安装灯光服务」会安静几分钟，属正常。看到「[100%] 基础环境安装完成」即可进入下一步。</p>
+        <img class="screenshot" src="screenshots/04-terminal-progress.png" alt="免密终端安装进度">
+        <img class="screenshot" src="screenshots/05-terminal-done.png" alt="免密终端安装完成，提示回到 Agent 控制台发送绑定米家账号">
+        <p>如果终端窗口中断，重新点「登录」进入终端，运行状态查询命令。不要重复运行安装命令。</p>
         <pre class="command"><code>bash install-xinguang-ai-light.sh status</code></pre>
         <div class="copy-row">
           <button class="copy-btn secondary" data-copy-textarea="terminalStatusCommand">复制终端状态查询命令</button>
         </div>
-        <img class="screenshot" src="screenshots/02-server-login.png" alt="腾讯云服务器页面点击免密码登录">
-        <img class="screenshot" src="screenshots/04-terminal-progress.png" alt="免密终端安装进度">
-        <img class="screenshot" src="screenshots/05-terminal-done.png" alt="免密终端安装完成">
-        <div class="notice">终端安装完成后，建议先到腾讯云「快照」页创建一次快照，后续测试需要回滚时更方便。</div>
+        <div class="notice">终端安装完成后，建议先到腾讯云「快照」页创建一次快照，后续需要回滚时更方便。</div>
         <img class="screenshot" src="screenshots/05a-create-snapshot.png" alt="腾讯云快照页创建快照">
-        <div class="notice">终端看到“安装完成”后，回到龙虾，发送「绑定米家账号」。</div>
+        <div class="notice">提示：龙虾（OpenClaw）请保持腾讯云镜像自带的版本，不要自行升级；如需升级，只用 Agent 控制台「设置 → 实例运维 → 更新镜像」。</div>
       </section>
 
       <section id="mijia">
         <h2>绑定米家账号</h2>
-        <p>安装完成后，回到龙虾对话窗口，直接说：<strong>绑定米家账号</strong>。</p>
+        <p>打开 Lighthouse Agent 控制台的「对话」页（服务器详情页「应用管理」→「立即前往」，或左侧菜单「Agent 控制台」）。首次打开可能显示「正在检测实例连接状态」，等待约 1 分钟，左上角变成「运行中」后，直接发送：<strong>绑定米家账号</strong>。</p>
         <pre class="command"><code>绑定米家账号</code></pre>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="mijiaPrompt">复制米家绑定指令</button>
         </div>
-        <img class="screenshot" src="screenshots/06-bind-link.png" alt="龙虾对话页给出米家授权链接">
+        <img class="screenshot" src="screenshots/06-bind-link.png" alt="Agent 控制台对话页给出米家授权链接，粘贴授权码后提示绑定成功">
         <img class="screenshot" src="screenshots/06-authorize-confirm.png" alt="米家授权页点击确认授权">
         <img class="screenshot" src="screenshots/07-bind-code.png" alt="米家授权成功后复制授权信息">
-        <img class="screenshot" src="screenshots/07a-bind-success.png" alt="龙虾提示米家账号绑定成功并进入下一步">
+        <img class="screenshot" src="screenshots/07-bind-success-home.png" alt="龙虾提示米家账号绑定成功并列出家庭">
         <ol>
-          <li>龙虾给出米家授权链接。</li>
-          <li>点击链接打开米家授权页，点击「确认授权」。</li>
+          <li>龙虾给出「点击打开米家授权链接」。</li>
+          <li>点击链接打开米家授权页，用小米账号登录后点「确认授权」。</li>
           <li>授权成功后点击「复制授权信息」。</li>
-          <li>把授权码粘贴回龙虾。</li>
-          <li>绑定成功后，龙虾会检查家庭列表。</li>
+          <li>回到对话页，把授权码粘贴发送。</li>
+          <li>看到「米家账号绑定成功」后，龙虾会列出家庭。</li>
         </ol>
+        <div class="notice">如果米家授权页打开后显示 “A server error occurred”，是小米账号服务临时故障，与你的服务器无关。等几十分钟后，重新发送「绑定米家账号」拿新链接再试。</div>
       </section>
 
       <section id="home">
         <h2>选择米家家庭</h2>
-        <p>如果你的米家账号下有多个家庭，龙虾会列出家庭。请选择馨光设备所在家庭，例如“林坞店”。</p>
-        <img class="screenshot" src="screenshots/08-home-select.png" alt="多家庭时选择馨光设备所在家庭">
-        <div class="notice">选择家庭后，发送「安装馨光 Skill」。</div>
+        <p>如果你的米家账号下有多个家庭，龙虾会列出家庭并编号。直接回复馨光设备所在家庭的序号，例如 <code>2</code>。看到「已切换到【家庭名】。下一步：请发送「安装馨光 Skill」。」即完成。</p>
+        <img class="screenshot" src="screenshots/08-home-select.png" alt="回复家庭序号后，龙虾提示已切换到该家庭并进入下一步">
+        <div class="notice">绑定后 Miloco 可能会主动问“家里都有谁呀”之类的家庭信息，这是 Miloco 自带的家庭档案功能，与灯光无关，可以不理会或回复「跳过」。</div>
       </section>
 
       <section id="skill">
         <h2>安装馨光 Skill</h2>
-        <p>家庭选择完成后，直接对龙虾说：<strong>安装馨光 Skill</strong>。</p>
+        <p>家庭选择完成后，在同一个对话里发送：<strong>安装馨光 Skill</strong>。</p>
         <pre class="command"><code>安装馨光 Skill</code></pre>
         <div class="copy-row">
           <button class="copy-btn" data-copy-textarea="skillInstallPrompt">复制馨光 Skill 安装指令</button>
         </div>
         <img class="screenshot" src="screenshots/09-skill-install.png" alt="龙虾收到安装馨光 Skill 指令">
         <img class="screenshot" src="screenshots/10-skill-done.png" alt="龙虾提示馨光 Skill 已安装">
-        <div class="notice">安装成功后，龙虾会提示可以开始测试灯光。</div>
+        <div class="notice">安装成功后，龙虾会提示可以开始测试灯光。安装 Skill 后，如果龙虾对灯光需求没有反应，先发送 <code>/new</code> 开一个新会话再试。</div>
       </section>
 
       <section id="test">
@@ -450,9 +461,8 @@
         <h2>备用方式</h2>
         <details>
           <summary>通过龙虾尝试安装</summary>
-          <p>如果你希望直接在龙虾对话中尝试安装，可以复制下面内容发送给龙虾。但如果龙虾提示无法执行脚本、要求查看脚本、反复解释风险，或中途切换成英文说明，请改用上面的「腾讯云免密终端安装」。</p>
+          <p>如果你希望直接在 Agent 控制台对话中尝试安装，可以复制下面内容发送给龙虾。但如果龙虾提示无法执行脚本、要求查看脚本、反复解释风险，或中途切换成英文说明，请改用上面的「腾讯云免密终端安装」。</p>
           <pre class="command"><code>请执行下面这段馨光 AI 设计灯光内测安装指令：
-
 curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-ai-light.sh -o install-xinguang-ai-light.sh && bash install-xinguang-ai-light.sh</code></pre>
           <div class="copy-row">
             <button class="copy-btn secondary" data-copy-textarea="fallbackAgentPrompt">复制备用龙虾安装内容</button>
@@ -460,19 +470,27 @@ curl -fsSL https://nijez.github.io/xingguang-ai-lighting-guide/install-xinguang-
         </details>
         <details>
           <summary>终端状态查询</summary>
-          <p>如果终端窗口中断，可以在同一个终端运行状态查询命令。不要重复运行安装命令。</p>
+          <p>如果终端窗口中断，重新点「登录」进入终端，运行状态查询命令。不要重复运行安装命令。</p>
           <pre class="command"><code>bash install-xinguang-ai-light.sh status</code></pre>
+        </details>
+        <details>
+          <summary>维护面板（安装完成后可用）</summary>
+          <p>在终端输入 <code>xinguang</code> 回车，可打开维护面板：一键体检、灯光测试、查看设备、切换家庭、更新组件等。遇到问题时先跑「1. 一键体检」，把结果发给工作人员。</p>
         </details>
       </section>
 
       <section id="faq">
         <h2>常见问题</h2>
         <div class="grid">
-          <div class="card"><h3>终端安装卡住怎么办？</h3><p>如果长时间没有新提示，运行终端状态查询命令；不要重复运行安装命令。</p></div>
-          <div class="card"><h3>DeepSeek API Key 在哪里填写？</h3><p>在 Agent 控制台的模型设置里填写一次即可。</p></div>
-          <div class="card"><h3>米家账号怎么绑定？</h3><p>按龙虾给出的授权链接完成授权，把授权码粘贴回龙虾。</p></div>
-          <div class="card"><h3>有多个米家家庭怎么办？</h3><p>选择馨光设备所在的家庭。</p></div>
-          <div class="card"><h3>灯光未变化怎么办？</h3><p>回复「未变化」。龙虾会提示测试未通过，请联系工作人员处理。</p></div>
+          <div class="card"><h3>点「登录」后提示“登录失败 / 凭据错误”？</h3><p>多见于服务器回滚过快照。在 OrcaTerm 左侧「连接管理器」里右键这台服务器 →「编辑」→ 连接协议改为「免密连接（TAT）」→「连接并保存」。</p></div>
+          <div class="card"><h3>终端安装卡住怎么办？</h3><p>「正在安装灯光服务」安静几分钟属正常。如果超过 15 分钟没有新提示，运行终端状态查询命令；不要重复运行安装命令。</p></div>
+          <div class="card"><h3>找不到以前的“模型设置 / 通道 / AgentChat”？</h3><p>腾讯云已把这些功能迁移到「Lighthouse Agent 控制台」。服务器详情页「应用管理」→「立即前往」即可进入，对话页就是原来的 AgentChat。</p></div>
+          <div class="card"><h3>Agent 控制台显示“未运行 / 正在检测实例连接状态”？</h3><p>安装或重启后头一分钟常见。等待约 1 分钟后刷新页面，左上角变为「运行中」即可。</p></div>
+          <div class="card"><h3>DeepSeek API Key 在哪里填写？</h3><p>Agent 控制台 →「设置」→「Agent 管理」→ 模型区域「切换模型」→ 深度求索（DeepSeek）。填一次即可。</p></div>
+          <div class="card"><h3>米家账号怎么绑定？</h3><p>在 Agent 控制台对话页发送「绑定米家账号」，按授权链接完成授权，把授权码粘贴回对话。</p></div>
+          <div class="card"><h3>有多个米家家庭怎么办？</h3><p>回复馨光设备所在家庭的序号。以后要换家庭，在终端输入 <code>xinguang</code> 用维护面板「切换家庭」。</p></div>
+          <div class="card"><h3>灯光未变化怎么办？</h3><p>回复「未变化」。龙虾会提示测试未通过，请在终端输入 <code>xinguang</code> 跑一次「一键体检」，把结果发给工作人员。</p></div>
+          <div class="card"><h3>龙虾（OpenClaw）要不要升级？</h3><p>不要自行升级。控制台提示“镜像可更新”时，只用 Agent 控制台「设置 → 实例运维 → 更新镜像」，升级后在终端输入 <code>xinguang</code> 跑一次体检。</p></div>
         </div>
       </section>
 
